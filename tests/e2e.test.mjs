@@ -92,12 +92,13 @@ test('onboarding: disclaimer, balance validation, confirm, persists', async () =
   await page.context().close();
 });
 
-test('no relay configured: friendly setup prompt instead of errors', async () => {
-  const page = await newPage('iPhone 14', { relayUrl: '' });
+test('uses the built-in relay address by default', async () => {
+  const page = await newPage('iPhone 14', { time: '2026-11-24T15:00:00Z', relayUrl: '' });
+  const calls = [];
+  await page.route('https://learning-paper-trading.ertel-kasen.workers.dev/**', r => { calls.push(r.request().url()); r.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ quotes: {}, bars: [], meta: {} }) }); });
   await page.goto(base);
-  await page.waitForSelector('.chart-msg >> text=data relay');
-  await page.click('#setRelay');
-  await page.waitForSelector('text=DATA RELAY');
+  await page.waitForFunction(() => document.querySelector('.chart-msg')?.textContent.includes('No price data'));
+  assert.ok(calls.some(u => u.includes('/chart?symbol=SPY')));
   assert.deepEqual(page.errors, []);
   await page.context().close();
 });
