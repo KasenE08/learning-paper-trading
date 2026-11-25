@@ -1,0 +1,30 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="base.css"><style>
+body{font-family:'JetBrains Mono',monospace;font-size:13px;background:#040810}
+body:after{content:'';position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,#0000 0 2px,#00000038 2px 3px)}
+.bar{display:flex;justify-content:space-between;padding:8px 14px;border-bottom:1px solid #16243f;font-size:11px}
+.q{padding:12px 14px 4px}.q .tk{font-size:26px;font-weight:800}.q .px{font-size:26px;font-weight:600;margin-left:10px}
+.meta{padding:0 14px;font-size:11px;color:var(--dim)}
+svg{width:100%;height:300px;display:block;margin-top:6px;border-top:1px dashed #16243f;border-bottom:1px dashed #16243f}
+.tfs{display:flex;padding:8px 14px;gap:4px;font-size:11px}.tfs span{padding:3px 7px;color:var(--dim)}.tfs .on{color:#041018;background:var(--cyan);box-shadow:0 0 10px #3df2ff88}
+table{width:calc(100% - 28px);margin:8px 14px;border-collapse:collapse;font-size:12px}td{padding:4px 0}td:last-child{text-align:right}
+.cmd{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:8px 14px}
+.cmd div{text-align:center;padding:12px 0;border:1px solid #2a3d63;font-weight:700}
+.cmd .b{border-color:var(--green)}.cmd .s{border-color:var(--red)}
+.prompt{margin:10px 14px;font-size:12px;line-height:1.5}
+.cur{display:inline-block;width:8px;height:14px;background:var(--cyan);vertical-align:-2px;box-shadow:0 0 8px var(--cyan)}
+</style></head><body>
+<div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+<div class="bar"><span class="c">LPT://TERMINAL</span><span class="g">■ OPEN 13:45:53 ET</span></div>
+<div class="q"><span class="tk w">AAPL</span><span class="px w">231.54</span> <span class="g">▲ +2.83 +1.24%</span></div>
+<div class="meta">O 228.90  H 232.10  L 228.41  VOL 41.2M</div>
+<svg data-candles='{"n":48,"seed":5,"hollow":true,"grid":"#122039"}'></svg>
+<div class="tfs"><span>1m</span><span class="on">5m</span><span>15m</span><span>1H</span><span>1D</span><span>1W</span><span>1M</span><span>1Y</span><span>MAX</span></div>
+<table>
+<tr><td class="d">EQUITY</td><td class="w">$10,482.37</td></tr>
+<tr><td class="d">DAY P&amp;L</td><td class="g">+$82.15 (+0.79%)</td></tr>
+<tr><td class="d">BUYING POWER</td><td class="w">$4,210.00</td></tr>
+</table>
+<div class="cmd"><div class="b g">BUY</div><div class="s r">SELL</div><div class="w">ORDERS</div><div class="w">MENU</div></div>
+<div class="prompt"><span class="c">&gt; hint:</span> <span class="w">hollow candle = closed up, filled = closed down. tap any candle for its O/H/L/C.</span> <span class="cur"></span></div>
+<div class="home-ind"></div>
+<script src="candles.js"></script></body></html>

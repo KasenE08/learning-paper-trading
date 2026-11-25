@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs>
+  <radialGradient id="bg" cx="50%" cy="35%" r="80%"><stop offset="0" stop-color="#0d1a33"/><stop offset="1" stop-color="#03060d"/></radialGradient>
+  <filter id="glow" filterUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024"><feGaussianBlur stdDeviation="30" result="b1"/><feGaussianBlur stdDeviation="10" in="SourceGraphic" result="b2"/><feMerge><feMergeNode in="b1"/><feMergeNode in="b1"/><feMergeNode in="b2"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs><rect width="1024" height="1024" fill="url(#bg)"/>
+<g filter="url(#glow)" stroke-linecap="round">
+  <line x1="262" y1="560" x2="262" y2="800" stroke="#ff3b5c" stroke-width="14"/><rect x="222" y="600" width="80" height="150" rx="10" fill="#ff3b5c"/>
+  <line x1="412" y1="470" x2="412" y2="740" stroke="#00ff9c" stroke-width="14"/><rect x="372" y="510" width="80" height="190" rx="10" fill="#00ff9c"/>
+  <line x1="562" y1="400" x2="562" y2="620" stroke="#ff3b5c" stroke-width="14"/><rect x="522" y="440" width="80" height="120" rx="10" fill="#ff3b5c"/>
+  <line x1="712" y1="210" x2="712" y2="560" stroke="#00ff9c" stroke-width="14"/><rect x="672" y="260" width="80" height="260" rx="10" fill="#00ff9c"/>
+</g>
+<line x1="180" y1="850" x2="844" y2="850" stroke="#3df2ff" stroke-width="8" opacity=".55" filter="url(#glow)"/>
+</svg>

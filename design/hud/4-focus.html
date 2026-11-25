@@ -1,0 +1,36 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="base.css"><style>
+body{font-family:Inter,sans-serif;background:radial-gradient(90% 50% at 50% 30%,#0e1e3d,#050913 75%)}
+.head{display:flex;justify-content:space-between;align-items:center;padding:10px 20px}
+.head .srch{flex:1;margin-right:12px;padding:10px 14px;border-radius:14px;background:#0c1730;border:1px solid #1a2a4a;color:var(--dim);font-size:14px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px var(--cyan);display:inline-block;margin-right:6px}
+.mk{font-size:12px}
+.focus{margin:14px 16px 0;padding:20px 18px 16px;border-radius:28px;background:linear-gradient(180deg,#0f1d3a,#0a1428);border:1px solid #1d3157;box-shadow:0 20px 50px #0009}
+.focus .nm{font-size:13px;color:var(--dim)}.focus .tk{font:700 30px 'Inter Display',Inter}
+.focus .px{font:600 40px 'Inter Display',Inter;margin-top:8px}.focus .ch{font-weight:600}
+svg{width:100%;height:250px;display:block;margin:14px 0 10px}
+.tf{display:flex;justify-content:space-between;font-size:13px;color:var(--dim)}.tf .on{color:var(--cyan);text-shadow:var(--gC);font-weight:700}
+.pager{text-align:center;margin:12px 0;letter-spacing:6px;color:#2a3d63}.pager b{color:var(--cyan)}
+.trade{margin:0 16px;padding:17px;border-radius:18px;text-align:center;font-weight:700;font-size:17px;background:linear-gradient(90deg,#00ff9c22,#3df2ff22);border:1px solid #3df2ff66;color:var(--white);text-shadow:var(--gW)}
+.toast{position:absolute;left:28px;right:28px;bottom:138px;padding:10px 14px;border-radius:14px;background:#06121fe6;border:1px solid #3df2ff55;font-size:13px;box-shadow:0 0 20px #3df2ff22;backdrop-filter:blur(8px)}
+.drawer{position:absolute;bottom:0;left:0;right:0;height:120px;border-radius:26px 26px 0 0;background:#0a1324;border-top:1px solid #1d3157;padding:10px 22px}
+.handle{width:40px;height:5px;border-radius:3px;background:#2a3d63;margin:0 auto 12px}
+.drawer .row{display:flex;justify-content:space-between;align-items:baseline}
+.drawer small{color:var(--dim);font-size:12px}.drawer .v{font:700 22px 'Inter Display',Inter}
+</style></head><body>
+<div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+<div class="head"><div class="srch">⌕  Search any stock</div><span class="mk c"><span class="dot"></span>Open</span></div>
+<div class="focus">
+  <div class="nm">Apple Inc.</div><div class="tk w">AAPL</div>
+  <div class="px w">$231.54 <span class="ch g" style="font-size:16px">▲ 1.24%</span></div>
+  <svg data-candles='{"n":30,"seed":19}'></svg>
+  <div class="tf"><span>1m</span><span>5m</span><span class="on">1D</span><span>1W</span><span>1M</span><span>1Y</span><span>Max</span></div>
+</div>
+<div class="pager"><b>●</b>●●●</div>
+<div class="trade">Trade AAPL</div>
+<div class="toast"><span class="c"><b>Tip</b></span> · Swipe the card to see your other stocks.</div>
+<div class="drawer"><div class="handle"></div>
+  <div class="row"><small>Account value</small><small>Today</small></div>
+  <div class="row"><span class="v w">$10,482.37</span><span class="v g">+$82.15</span></div>
+  <div class="row" style="margin-top:4px"><small>Pull up for portfolio, orders &amp; more</small></div>
+</div>
+<script src="candles.js"></script></body></html>

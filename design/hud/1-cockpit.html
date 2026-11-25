@@ -1,0 +1,37 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="base.css"><style>
+body{font-family:'JetBrains Mono',monospace;background:radial-gradient(120% 60% at 50% 0%,#0b1a33,#050913 70%)}
+.status{display:flex;justify-content:space-between;padding:10px 20px;font-size:11px;letter-spacing:.12em}
+.frame{position:relative;margin:8px 16px;padding:16px}
+.frame:before,.frame:after,.frame i:before,.frame i:after{content:'';position:absolute;width:14px;height:14px;border:2px solid var(--cyan);filter:drop-shadow(0 0 4px var(--cyan))}
+.frame:before{top:0;left:0;border-right:0;border-bottom:0}.frame:after{top:0;right:0;border-left:0;border-bottom:0}
+.frame i:before{bottom:0;left:0;border-right:0;border-top:0}.frame i:after{bottom:0;right:0;border-left:0;border-top:0}
+.lbl{font-size:10px;letter-spacing:.2em;color:var(--dim)}
+.big{font-size:38px;font-weight:600;margin:6px 0 2px}
+.row{display:flex;justify-content:space-between;align-items:baseline}
+.tk{font-size:20px;font-weight:700}
+.tf{display:flex;gap:14px;font-size:11px;margin-top:10px;color:var(--dim)}.tf b{color:var(--cyan);text-shadow:var(--gC)}
+svg{width:100%;height:270px;display:block;margin-top:8px}
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 16px}
+.btn{border:1.5px solid;padding:14px;text-align:center;font-weight:700;letter-spacing:.2em;font-size:14px;clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px)}
+.buy{border-color:var(--green);color:var(--green);text-shadow:var(--gG);background:#00ff9c12}.sell{border-color:var(--red);color:var(--red);text-shadow:var(--gR);background:#ff3b5c12}
+.hint{margin:4px 16px;padding:10px 12px;border-left:2px solid var(--cyan);background:#3df2ff0d;font-size:12px;line-height:1.5}
+.nav{position:absolute;bottom:22px;left:16px;right:16px;display:flex;justify-content:space-around;border-top:1px solid var(--line);padding-top:12px;font-size:10px;letter-spacing:.15em;color:var(--dim)}
+.nav .on{color:var(--cyan);text-shadow:var(--gC)}
+</style></head><body>
+<div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+<div class="status"><span class="c">◉ MARKET OPEN</span><span class="d">CLOSE IN 02:14:07</span></div>
+<div class="frame"><i></i>
+  <div class="lbl">ACCOUNT VALUE</div>
+  <div class="big w">$10,482.37</div>
+  <div class="row"><span class="g">▲ +$82.15 (+0.79%)</span><span class="lbl">TODAY</span></div>
+</div>
+<div class="frame"><i></i>
+  <div class="row"><span class="tk w">AAPL</span><span><span class="w">231.54</span> <span class="g">+1.24%</span></span></div>
+  <svg data-candles='{"n":36,"grid":"#16243f"}'></svg>
+  <div class="tf"><span>1m</span><b>5m</b><span>1D</span><span>1W</span><span>1M</span><span>1Y</span><span>MAX</span></div>
+</div>
+<div class="btns"><div class="btn buy">BUY</div><div class="btn sell">SELL</div></div>
+<div class="hint"><span class="c">› TIP</span> Green candle = price closed higher than it opened. Red = lower.</div>
+<div class="nav"><span class="on">◈ HOME</span><span>⌕ SEARCH</span><span>▤ PORTFOLIO</span><span>≡ MENU</span></div>
+<div class="home-ind"></div>
+<script src="candles.js"></script></body></html>
