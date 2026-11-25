@@ -97,7 +97,7 @@ async function search(q) {
   if (!q || q.length > 40) throw fail('missing or too-long query');
   const data = await yahoo(`/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=15&newsCount=0&listsCount=0&enableFuzzyQuery=true`);
   const results = (data.quotes || [])
-    .filter(x => (x.quoteType === 'EQUITY' || x.quoteType === 'ETF') && US_EXCHANGES.has(x.exchange) && !x.symbol.includes('.'))
+    .filter(x => x.quoteType === 'EQUITY' && US_EXCHANGES.has(x.exchange) && !x.symbol.includes('.'))
     .map(x => ({ symbol: x.symbol, name: x.longname || x.shortname || x.symbol, exchange: x.exchDisp || x.exchange, type: x.quoteType }));
   return { query: q, results };
 }

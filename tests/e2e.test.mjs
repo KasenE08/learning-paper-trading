@@ -41,7 +41,8 @@ function relayMock(page, { price = () => 101.5, calls = [] } = {}) {
     const sym = (u.searchParams.get('symbol') || u.searchParams.get('symbols') || 'SPY').split(',')[0];
     if (u.pathname === '/search') return send({ results: [
       { symbol: 'AAPL', name: 'Apple Inc.', exchange: 'NASDAQ', type: 'EQUITY' },
-      { symbol: 'APLE', name: 'Apple Hospitality REIT, Inc.', exchange: 'NYSE', type: 'EQUITY' }] });
+      { symbol: 'APLE', name: 'Apple Hospitality REIT, Inc.', exchange: 'NYSE', type: 'EQUITY' },
+      { symbol: 'APLY', name: 'YieldMax AAPL Option Income ETF', exchange: 'NYSE Arca', type: 'ETF' }] });
     if (u.pathname === '/chart') return send({ meta: { symbol: sym, name: sym === 'AAPL' ? 'Apple Inc.' : 'SPDR S&P 500 ETF', previousClose: 100 }, bars: mockBars(60, 1795530600, 300), dividends: [], splits: [] });
     if (u.pathname === '/quote') { const p = price(); return send({ quotes: { [sym]: { symbol: sym, name: sym === 'AAPL' ? 'Apple Inc.' : 'SPDR S&P 500 ETF', price: p, previousClose: 100, regularTime: Math.floor(Date.now() / 1000), last: p, lastTime: Math.floor(Date.now() / 1000), extended: false } } }); }
     return send({ ok: true });
@@ -66,11 +67,14 @@ test('onboarding: disclaimer, balance validation, confirm, persists', async () =
   await page.goto(base);
   assert.match(await page.textContent('.onb'), /NOT FINANCIAL ADVICE/);
   assert.equal(await page.isDisabled('#start'), true);
-  await page.fill('#bal', '50');
+  await page.fill('#bal', '0');
   assert.equal(await page.isDisabled('#start'), true);
-  assert.match(await page.textContent('#balHint'), /Enter between/);
-  await page.fill('#bal', '20000000');
+  assert.match(await page.textContent('#balHint'), /above \$0/);
+  await page.fill('#bal', 'abc');
   assert.equal(await page.isDisabled('#start'), true);
+  await page.fill('#bal', '5000000000000');
+  assert.equal(await page.isDisabled('#start'), true);
+  for (const ok of ['1', '50', '20000000']) { await page.fill('#bal', ok); assert.equal(await page.isDisabled('#start'), false, ok); }
   await page.fill('#bal', '$12,345.67');
   assert.equal(await page.isDisabled('#start'), false);
   await page.click('#start');
@@ -179,7 +183,8 @@ test('search: results, pick ticker, recent list', async () => {
   await page.fill('#q', 'apple');
   await page.clock.runFor(400);
   await page.waitForSelector('[data-sym="AAPL"]');
-  assert.equal(await page.locator('#results .item').count(), 2);
+  assert.equal(await page.locator('#results .item').count(), 2, 'ETF hidden');
+  assert.equal(await page.locator('[data-sym="APLY"]').count(), 0);
   await page.click('[data-sym="AAPL"]');
   await page.waitForFunction(() => document.querySelector('#tkBtn')?.textContent.startsWith('AAPL'));
   await page.waitForFunction(() => document.querySelector('#tkName')?.textContent === 'Apple Inc.');

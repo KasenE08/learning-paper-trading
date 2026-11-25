@@ -33,7 +33,7 @@ function renderOnboarding() {
     </div>
     <div class="lbl">Starting balance</div>
     <label class="field"><span class="pre">$</span><input id="bal" inputmode="decimal" autocomplete="off" placeholder="10,000" aria-label="Starting balance"></label>
-    <div class="hint" id="balHint">Any amount from ${fmt.money(MIN_BALANCE)} to ${fmt.money(MAX_BALANCE)}. You set this once.</div>
+    <div class="hint" id="balHint">Any amount you like. You set this once.</div>
     <button class="btn cy" id="start" disabled>START TRADING</button>
   </div>`;
   const input = $('#bal'), hint = $('#balHint'), btn = $('#start');
@@ -42,8 +42,8 @@ function renderOnboarding() {
     const v = parse(), ok = v >= MIN_BALANCE && v <= MAX_BALANCE;
     btn.disabled = !ok;
     hint.className = 'hint' + (input.value && !ok ? ' err' : '');
-    hint.textContent = !input.value ? `Any amount from ${fmt.money(MIN_BALANCE)} to ${fmt.money(MAX_BALANCE)}. You set this once.`
-      : ok ? `You'll start with ${fmt.money(v)} in cash.` : `Enter between ${fmt.money(MIN_BALANCE)} and ${fmt.money(MAX_BALANCE)}.`;
+    hint.textContent = !input.value ? 'Any amount you like. You set this once.'
+      : ok ? `You'll start with ${fmt.money(v)} in cash.` : v > MAX_BALANCE ? `That's too large to track to the cent (max ${fmt.money(MAX_BALANCE)}).` : 'Enter an amount above $0.';
   });
   btn.addEventListener('click', () => {
     const v = parse();
@@ -242,7 +242,7 @@ function renderSearch(main) {
   const showRecent = () => {
     const r = store.get().recentSearches;
     out.innerHTML = r.length ? `<div class="sect">RECENT</div><div class="list">${r.map(itemHtml).join('')}</div>`
-      : `<div class="empty">Type a company name (like “apple”) or a ticker symbol (like “AAPL”).<br>Results include US-listed stocks and ETFs.</div>`;
+      : `<div class="empty">Type a company name (like “apple”) or a ticker symbol (like “AAPL”).<br>Results include US-listed stocks.</div>`;
   };
   let timer, seq = 0;
   input.addEventListener('input', () => {
@@ -255,7 +255,8 @@ function renderSearch(main) {
       try {
         const res = await api.search(q);
         if (my !== seq) return;
-        out.innerHTML = res.results.length ? `<div class="list">${res.results.map(itemHtml).join('')}</div>` : `<div class="empty">No US stocks match “${fmt.esc(q)}”.</div>`;
+        const stocks = res.results.filter(r => r.type === 'EQUITY'); // stocks only (no ETFs, funds, futures)
+        out.innerHTML = stocks.length ? `<div class="list">${stocks.map(itemHtml).join('')}</div>` : `<div class="empty">No US stocks match “${fmt.esc(q)}”.</div>`;
       } catch (e) {
         if (my !== seq) return;
         out.innerHTML = e.code === 'NO_RELAY' ? `<div class="empty">Search needs the data relay.<br><br><button class="btn cy" id="setRelay">SET UP DATA RELAY</button></div>`
@@ -275,7 +276,7 @@ function renderSearch(main) {
   setTimeout(() => input.focus(), 50);
 }
 const itemHtml = r => `<button class="item" data-sym="${fmt.esc(r.symbol)}" data-name="${fmt.esc(r.name)}" data-ex="${fmt.esc(r.exchange || '')}" data-type="${fmt.esc(r.type || '')}">
-  <span class="sym w">${fmt.esc(r.symbol)}</span><span class="mid"><div>${fmt.esc(r.name)}</div><small>${fmt.esc(r.exchange || '')}</small></span>${r.type === 'ETF' ? '<span class="tag">ETF</span>' : ''}</button>`;
+  <span class="sym w">${fmt.esc(r.symbol)}</span><span class="mid"><div>${fmt.esc(r.name)}</div><small>${fmt.esc(r.exchange || '')}</small></span></button>`;
 
 // ---------------------------------------------------------------- portfolio (Phase 4 fills this in)
 function renderPortfolio(main) {
