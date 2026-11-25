@@ -261,18 +261,55 @@ test('3 violations in 12 months restrict buying to settled cash for 90 days', ()
   assert.equal(bp, s.account.settled);
 });
 
-test('stock split adjusts shares, cost and open orders once', () => {
+test('forward split (Fidelity/FINRA): below-market orders adjusted, above-market canceled, once', () => {
+  const s = acct();
+  buy(s, { qty: 20 }, TUE_1000, 100);
+  const sellLimit = E.submit(s, { symbol: 'AAPL', side: 'sell', type: 'limit', qty: 5, limit: 150, tif: 'gtc' }, { now: TUE_1000, price: 100 }).orders[0];
+  const sellStop = E.submit(s, { symbol: 'AAPL', side: 'sell', type: 'stop', qty: 5, stop: 90, tif: 'gtc' }, { now: TUE_1000, price: 100 }).orders[0];
+  const buyLimit = E.submit(s, { symbol: 'AAPL', side: 'buy', type: 'limit', qty: 3, limit: 80, tif: 'gtc' }, { now: TUE_1000, price: 100 }).orders[0];
+  const buyStop = E.submit(s, { symbol: 'AAPL', side: 'buy', type: 'stop', qty: 3, stop: 120, tif: 'gtc' }, { now: TUE_1000, price: 100 }).orders[0];
+  const trail = E.submit(s, { symbol: 'AAPL', side: 'sell', type: 'trailing_stop', qty: 5, trail: { kind: '$', value: 8 }, tif: 'gtc' }, { now: TUE_1000, price: 100 }).orders[0];
+  const split = [{ date: WED_0930 / 1000, numerator: 4, denominator: 1 }];
+  const applied = E.applySplits(s, 'AAPL', split, WED_1000);
+  assert.equal(E.applySplits(s, 'AAPL', split, WED_1000).length, 0, 'only once');
+  const p = E.position(s, 'AAPL');
+  assert.equal(p.qty, 80);
+  assert.ok(Math.abs(p.cost - 2000.6) < 0.01, 'cost basis unchanged');
+  assert.equal(sellLimit.status, 'canceled');
+  assert.equal(buyStop.status, 'canceled');
+  assert.deepEqual([sellStop.qty, sellStop.stop], [20, 22.5]);
+  assert.deepEqual([buyLimit.qty, buyLimit.limit], [12, 20]);
+  assert.deepEqual([trail.qty, trail.trail.value, trail.hwm], [20, 2, 25]);
+  assert.equal(applied[0].canceled.length, 2);
+  assert.match(s.trading.activity.find(a => a.kind === 'canceled').text, /stock split — re-enter/);
+});
+
+test('3-for-2 split rounds whole-share orders down', () => {
+  const s = acct();
+  buy(s, { qty: 3 }, TUE_1000, 100);
+  const o = E.submit(s, { symbol: 'AAPL', side: 'sell', type: 'stop', qty: 3, stop: 90, tif: 'gtc' }, { now: TUE_1000, price: 100 }).orders[0];
+  E.applySplits(s, 'AAPL', [{ date: WED_0930 / 1000, numerator: 3, denominator: 2 }], WED_1000);
+  assert.equal(E.position(s, 'AAPL').qty, 4.5);
+  assert.equal(o.qty, 4);
+  assert.equal(o.stop, 60);
+});
+
+test('reverse split cancels every open order', () => {
+  const s = acct();
+  buy(s, { qty: 20 }, TUE_1000, 10);
+  const a = E.submit(s, { symbol: 'AAPL', side: 'sell', type: 'stop', qty: 20, stop: 9, tif: 'gtc' }, { now: TUE_1000, price: 10 }).orders[0];
+  const b = E.submit(s, { symbol: 'AAPL', side: 'buy', type: 'limit', qty: 5, limit: 8, tif: 'gtc' }, { now: TUE_1000, price: 10 }).orders[0];
+  E.applySplits(s, 'AAPL', [{ date: WED_0930 / 1000, numerator: 1, denominator: 10 }], WED_1000);
+  assert.equal(E.position(s, 'AAPL').qty, 2);
+  assert.deepEqual([a.status, b.status], ['canceled', 'canceled']);
+});
+
+test('split cancels a whole OCO when one leg must be canceled', () => {
   const s = acct();
   buy(s, { qty: 10 }, TUE_1000, 100);
-  E.submit(s, { symbol: 'AAPL', side: 'sell', type: 'limit', qty: 10, limit: 150, tif: 'gtc' }, { now: TUE_1000, price: 100 });
-  const split = [{ date: WED_0930 / 1000, numerator: 4, denominator: 1 }];
-  E.applySplits(s, 'AAPL', split, WED_1000);
-  E.applySplits(s, 'AAPL', split, WED_1000);
-  const p = E.position(s, 'AAPL');
-  assert.equal(p.qty, 40);
-  assert.ok(Math.abs(p.cost - 1000.3) < 0.01, 'cost basis unchanged');
-  const o = s.trading.orders.find(x => x.type === 'limit');
-  assert.equal(o.qty, 40); assert.equal(o.limit, 37.5);
+  const r = E.submit(s, { symbol: 'AAPL', side: 'sell', type: 'oco', qty: 10, takeProfit: 110, stopLoss: 95, tif: 'gtc' }, { now: TUE_1000, price: 100 });
+  E.applySplits(s, 'AAPL', [{ date: WED_0930 / 1000, numerator: 2, denominator: 1 }], WED_1000);
+  assert.deepEqual(r.orders.map(o => o.status), ['canceled', 'canceled']);
 });
 
 test('dividends: owners before the ex-date get paid ~2 weeks later', () => {

@@ -1,5 +1,5 @@
 // Service worker: app shell works offline; market data always goes to the network.
-const VERSION = 'lpt-v0.3.0';
+const VERSION = 'lpt-v0.3.1';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/app.js', 'js/api.js', 'js/chart.js', 'js/config.js', 'js/format.js', 'js/market.js', 'js/store.js',

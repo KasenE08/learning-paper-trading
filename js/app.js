@@ -33,6 +33,11 @@ function onTraderUpdate(ev) {
   }
   if (ui.tab === 'portfolio' && !document.querySelector('.scrim')) renderPortfolio($('#main'));
   const fills = ev.kind === 'quotes' ? ev.fills : ev.kind === 'catchup' ? ev.events.filter(x => x.kind === 'fill').map(x => x.fill) : [];
+  const splitCancels = ev.kind === 'catchup' ? ev.events.filter(x => x.kind === 'split' && x.canceled?.length) : [];
+  if (splitCancels.length) {
+    const x = splitCancels[0];
+    return toast(`${x.symbol} had a ${x.numerator}-for-${x.denominator} stock split. ${x.canceled.length} open order(s) were canceled; see Portfolio → Activity to re-enter them.`, 7000);
+  }
   if (fills?.length) {
     const f = fills[0];
     toast(`${fills.length > 1 ? fills.length + ' orders filled. ' : ''}${f.side === 'buy' ? 'Bought' : 'Sold'} ${+f.qty.toFixed(3)} ${f.symbol} at $${fmt.price(f.price)}${ev.kind === 'catchup' ? ' while the app was closed' : ''}.`, 5000);

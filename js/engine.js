@@ -487,28 +487,54 @@ function addViolation(s, o, t, settles) {
 }
 
 // ---------------------------------------------------------------- corporate actions
-/** Apply stock splits [{date (sec), numerator, denominator}] to lots and open orders. Returns applied splits. */
+/**
+ * Orders that FINRA Rule 5330 adjusts on a forward split: those priced *below* the market
+ * (buy limits, sell stops, sell stop limits, trailing sell stops). Market orders only change share count.
+ */
+const splitAdjustable = o => o.type === 'market'
+  || (o.side === 'buy' && o.type === 'limit')
+  || (o.side === 'sell' && ['stop', 'stop_limit', 'trailing_stop'].includes(o.type));
+
+/**
+ * Apply stock splits [{date (sec), numerator, denominator}] to lots and open orders (Fidelity/FINRA style):
+ * - forward split: below-market orders are adjusted (shares up, prices down); sell limits and buy stops are canceled
+ * - reverse split: all open orders are canceled
+ * - if one leg of a bracket/OCO is canceled, the whole group is canceled
+ * Returns applied splits, each with the list of canceled orders.
+ */
 export function applySplits(s, sym, splits, now) {
   const done = s.trading.splits[sym] ||= [];
   const applied = [];
   for (const sp of splits) {
     const day = ymdOf(sp.date * 1000), key = `${day}:${sp.numerator}/${sp.denominator}`;
     if (done.some(d => d.key === key) || day > ymdOf(now) || !(sp.numerator > 0 && sp.denominator > 0)) continue;
-    const ratio = sp.numerator / sp.denominator, dayStart = etDayStart(day);
+    const ratio = sp.numerator / sp.denominator, dayStart = etDayStart(day), label = `${sp.numerator}-for-${sp.denominator}`;
     const lots = s.trading.positions[sym]?.lots || [];
     let touched = false;
     for (const l of lots) if (l.time < dayStart) { l.qty = q3(l.qty * ratio); l.price = l.price / ratio; touched = true; }
-    for (const o of s.trading.orders) {
-      if (o.symbol !== sym || !(o.status === 'open' || o.status === 'pending') || o.createdAt >= dayStart) continue;
-      if (o.qty) o.qty = q3(o.qty * ratio);
+
+    const affected = s.trading.orders.filter(o => o.symbol === sym && (o.status === 'open' || o.status === 'pending') && o.createdAt < dayStart);
+    const cancelGroups = new Set(), toCancel = new Set();
+    for (const o of affected) if (ratio < 1 || !splitAdjustable(o)) { toCancel.add(o); if (o.group) cancelGroups.add(o.group.id); }
+    for (const o of affected) if (o.group && cancelGroups.has(o.group.id)) toCancel.add(o);
+    const canceled = [];
+    for (const o of affected) {
+      touched = true;
+      if (toCancel.has(o)) {
+        o.status = 'canceled'; o.closedAt = dayStart; o.reason = `Canceled for the ${label} stock split`;
+        canceled.push(o);
+        log(s, { kind: 'canceled', orderId: o.id, symbol: sym, time: dayStart, text: `${describe(o)} (${label} stock split — re-enter it if you still want it)` });
+        continue;
+      }
+      if (o.qty) o.qty = isWhole(o.qty) && o.type !== 'market' ? Math.floor(o.qty * ratio + 1e-9) : q3(o.qty * ratio);
       for (const k of ['limit', 'stop', 'hwm', 'lwm', 'refPrice']) if (o[k]) o[k] = roundPrice(o[k] / ratio);
       if (o.trail?.kind === '$') o.trail.value = roundPrice(o.trail.value / ratio);
-      touched = true;
     }
     done.push({ key, date: day, ratio });
     if (touched) {
-      log(s, { kind: 'split', symbol: sym, time: dayStart, text: `${sym} ${sp.numerator}-for-${sp.denominator} stock split: share counts and order prices adjusted.` });
-      applied.push({ ...sp, day, ratio });
+      const adjusted = affected.length - canceled.length;
+      log(s, { kind: 'split', symbol: sym, time: dayStart, text: `${sym} ${label} stock split: shares and cost per share adjusted${adjusted ? `, ${adjusted} open order(s) adjusted` : ''}${canceled.length ? `, ${canceled.length} open order(s) canceled` : ''}.` });
+      applied.push({ ...sp, day, ratio, canceled });
     }
   }
   return applied;
