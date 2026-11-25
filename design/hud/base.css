@@ -1,5 +1,5 @@
 :root{--bg:#050913;--bg2:#0a1428;--line:#16243f;--green:#00ff9c;--red:#ff3b5c;--white:#e8f1ff;--dim:#7d92b3;--cyan:#3df2ff;
---gG:0 0 6px #00ff9c99,0 0 14px #00ff9c55;--gR:0 0 6px #ff3b5c99,0 0 14px #ff3b5c55;--gW:0 0 6px #e8f1ff66,0 0 14px #e8f1ff33;--gC:0 0 6px #3df2ff99,0 0 14px #3df2ff55}
+--gG:0 0 5px #00ff9c7a,0 0 11px #00ff9c44;--gR:0 0 5px #ff3b5c7a,0 0 11px #ff3b5c44;--gW:0 0 5px #e8f1ff52,0 0 11px #e8f1ff29;--gC:0 0 5px #3df2ff7a,0 0 11px #3df2ff44}
 *{box-sizing:border-box}html,body{margin:0;height:100%}
 body{background:var(--bg);color:var(--white);width:390px;height:844px;overflow:hidden;position:relative;-webkit-font-smoothing:antialiased}
 .sb{height:47px;display:flex;justify-content:space-between;align-items:flex-end;padding:0 30px 6px;font:600 15px Inter,sans-serif}

@@ -21,6 +21,6 @@ function drawCandles(svg, opt = {}) {
     g += `<rect x="${x - cw * 0.32}" y="${bt}" width="${cw * 0.64}" height="${bh}" rx="1" fill="${hollow && d.c >= d.o ? 'none' : col}" stroke="${col}" stroke-width="1.2"/>`;
     if (vol) g += `<rect x="${x - cw * 0.32}" y="${H - d.v * H * 0.17}" width="${cw * 0.64}" height="${d.v * H * 0.17}" fill="${col}" opacity=".35"/>`;
   });
-  svg.innerHTML = (glow ? `<defs><filter id="cg"><feGaussianBlur stdDeviation="1.6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>` : '') + `<g ${glow ? 'filter="url(#cg)"' : ''}>${g}</g>`;
+  svg.innerHTML = (glow ? `<defs><filter id="cg"><feGaussianBlur stdDeviation="1.3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>` : '') + `<g ${glow ? 'filter="url(#cg)"' : ''}>${g}</g>`;
 }
 document.querySelectorAll('svg[data-candles]').forEach(s => drawCandles(s, JSON.parse(s.dataset.candles || '{}')));
