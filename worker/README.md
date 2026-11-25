@@ -5,6 +5,11 @@ The app gets prices from Yahoo Finance through a tiny relay that you own. It's f
 
 You can do all of this from your phone's browser (it's a bit easier on a computer).
 
+> **Using GitHub-connected setup (recommended, what this project uses):** in Workers & Pages → Create application,
+> connect the `KasenE08/learning-paper-trading` repo. The `wrangler.jsonc` file at the repo root tells Cloudflare to
+> deploy only `worker/worker.js`, and every push redeploys it automatically. The Worker name in Cloudflare must be
+> `learning-paper-trading` (it matches `wrangler.jsonc`). Then skip to **step 4**. The manual steps below are the alternative.
+
 ## 1. Create the account
 1. Go to **https://dash.cloudflare.com/sign-up** and sign up with email + password.
 2. Verify your email from the message Cloudflare sends.
@@ -25,11 +30,11 @@ You can do all of this from your phone's browser (it's a bit easier on a compute
 
 ## 4. Test it
 Open these in your browser (replace the address with yours, shown on the Worker's page):
-- `https://lpt-relay.<your-subdomain>.workers.dev/health` → should show `{"ok":true,...}`
-- `https://lpt-relay.<your-subdomain>.workers.dev/quote?symbols=SPY` → should show SPY's price.
+- `https://<worker-name>.<your-subdomain>.workers.dev/health` → should show `{"ok":true,...}`
+- `https://<worker-name>.<your-subdomain>.workers.dev/quote?symbols=SPY` → should show SPY's price.
 
 ## 5. Connect the app
-Send the address (`https://lpt-relay.<your-subdomain>.workers.dev`) to Claude so it can be built into the app,
+Send the address (`https://<worker-name>.<your-subdomain>.workers.dev`) to Claude so it can be built into the app,
 **or** paste it yourself in the app: **Menu → Data relay → Save & test**.
 
 ## Troubleshooting

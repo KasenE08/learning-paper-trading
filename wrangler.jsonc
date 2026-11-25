@@ -1,0 +1,10 @@
+// Cloudflare Workers config for the data relay. Cloudflare's GitHub integration
+// reads this on every push and deploys worker/worker.js (only the relay; the app
+// itself is served by GitHub Pages). "name" must match the Worker in the dashboard.
+{
+  "name": "learning-paper-trading",
+  "main": "worker/worker.js",
+  "compatibility_date": "2026-11-01",
+  "workers_dev": true,
+  "preview_urls": false
+}
