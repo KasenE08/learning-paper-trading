@@ -4,7 +4,7 @@ A free, phone-only stock paper-trading PWA with a built-in learning layer. Prete
 **Not financial advice.**
 
 - **Live app:** https://kasene08.github.io/learning-paper-trading/ (installable: in Safari, Share → Add to Home Screen)
-- **Data:** Yahoo Finance via your own free Cloudflare Worker. See [`worker/README.md`](worker/README.md).
+- **Data:** Yahoo Finance via the Cloudflare Worker at https://learning-paper-trading.ertel-kasen.workers.dev (auto-deploys from this repo; setup in [`worker/README.md`](worker/README.md)).
 - **Storage:** on-device only (localStorage).
 
 ## Project layout
