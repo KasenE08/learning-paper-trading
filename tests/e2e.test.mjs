@@ -34,7 +34,7 @@ function mockBars(n, start, step, p0 = 100) {
   for (let i = 0; i < n; i++) { const o = p, c = p + Math.sin(i / 3) * 0.4; bars.push([start + i * step, o, Math.max(o, c) + 0.2, Math.min(o, c) - 0.2, +c.toFixed(2), 1000]); p = c; }
   return bars;
 }
-function relayMock(page, { price = () => 101.5, calls = [] } = {}) {
+function relayMock(page, { price = () => 101.5, calls = [], chart = null } = {}) {
   return page.route(`${RELAY}/**`, route => {
     const u = new URL(route.request().url()); calls.push(u.pathname + u.search);
     const send = body => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify(body) });
@@ -43,21 +43,23 @@ function relayMock(page, { price = () => 101.5, calls = [] } = {}) {
       { symbol: 'AAPL', name: 'Apple Inc.', exchange: 'NASDAQ', type: 'EQUITY' },
       { symbol: 'APLE', name: 'Apple Hospitality REIT, Inc.', exchange: 'NYSE', type: 'EQUITY' },
       { symbol: 'APLY', name: 'YieldMax AAPL Option Income ETF', exchange: 'NYSE Arca', type: 'ETF' }] });
+    if (u.pathname === '/chart' && chart) { const r = chart(u); if (r) return send(r); }
     if (u.pathname === '/chart') return send({ meta: { symbol: sym, name: sym === 'AAPL' ? 'Apple Inc.' : 'SPDR S&P 500 ETF', previousClose: 100 }, bars: mockBars(60, 1795530600, 300), dividends: [], splits: [] });
-    if (u.pathname === '/quote') { const p = price(); return send({ quotes: { [sym]: { symbol: sym, name: sym === 'AAPL' ? 'Apple Inc.' : 'SPDR S&P 500 ETF', price: p, previousClose: 100, regularTime: Math.floor(Date.now() / 1000), last: p, lastTime: Math.floor(Date.now() / 1000), extended: false } } }); }
+    if (u.pathname === '/quote') { const p = price(); return send({ quotes: { [sym]: { symbol: sym, name: sym === 'AAPL' ? 'Apple Inc.' : 'SPDR S&P 500 ETF', type: sym === 'SPY' ? 'ETF' : 'EQUITY', price: p, previousClose: 100, regularTime: Math.floor(Date.now() / 1000), last: p, lastTime: Math.floor(Date.now() / 1000), extended: false } } }); }
     return send({ ok: true });
   });
 }
-const ACCOUNT = (relayUrl = RELAY) => JSON.stringify({ version: 1, account: { startingBalance: 25000, cash: 25000, createdAt: 1795500000000 }, settings: { relayUrl, symbol: null, range: '1D', intervals: {} }, recentSearches: [], dismissedTips: {} });
+const ACCOUNT = (relayUrl = RELAY, extra = {}) => JSON.stringify({ version: 1, account: { startingBalance: 25000, cash: 25000, createdAt: 1795500000000 }, settings: { relayUrl, symbol: null, range: '1D', intervals: {} }, recentSearches: [], dismissedTips: {}, ...extra });
 
-async function newPage(device = 'iPhone 14', { time, account = true, relayUrl } = {}) {
+async function newPage(device = 'iPhone 14', { time, account = true, relayUrl, symbol, state } = {}) {
   const ctx = await browser.newContext({ ...devices[device] });
   const page = await ctx.newPage();
   page.errors = [];
   page.on('pageerror', e => page.errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') page.errors.push(m.text()); });
   if (time) await page.clock.install({ time: new Date(time) });
-  if (account) await ctx.addInitScript(s => { if (!localStorage.getItem('lpt.v1')) localStorage.setItem('lpt.v1', s); }, ACCOUNT(relayUrl));
+  const init = state ? JSON.stringify(state) : ACCOUNT(relayUrl, symbol ? { settings: { relayUrl: relayUrl ?? RELAY, symbol, range: '1D', intervals: {} } } : {});
+  if (account) await ctx.addInitScript(s => { if (!localStorage.getItem('lpt.v1')) localStorage.setItem('lpt.v1', s); }, init);
   return page;
 }
 
@@ -87,7 +89,7 @@ test('onboarding: disclaimer, balance validation, confirm, persists', async () =
   assert.equal(await page.textContent('#acctVal'), '$12,345.67');
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('lpt.v1')).account);
   assert.equal(saved.startingBalance, 12345.67);
-  assert.equal(saved.cash, 12345.67);
+  assert.equal(saved.settled, 12345.67);
   assert.deepEqual(page.errors, []);
   await page.context().close();
 });
@@ -103,7 +105,7 @@ test('uses the built-in relay address by default', async () => {
   await page.context().close();
 });
 
-test('home: default SPY chart, quote, colors; Buy shows Phase 3 notice', async () => {
+test('home: default SPY chart, quote, colors; ETFs cannot be bought', async () => {
   const page = await newPage('iPhone 14', { time: '2026-11-24T15:00:00Z' });
   await relayMock(page);
   await page.goto(base);
@@ -116,7 +118,9 @@ test('home: default SPY chart, quote, colors; Buy shows Phase 3 notice', async (
   assert.match(await page.textContent('#status'), /MARKET OPEN/);
   assert.match(await page.textContent('#status'), /CLOSES IN 0(6:00:00|5:59:5\d)/);
   await page.click('#buy');
-  assert.match(await page.textContent('.toast'), /Phase 3/);
+  assert.match(await page.textContent('.toast'), /ETF. This app trades individual stocks only/);
+  await page.click('#sell');
+  assert.match(await page.textContent('.toast'), /don't own any SPY/);
   assert.deepEqual(page.errors, []);
   await page.context().close();
 });
@@ -271,6 +275,146 @@ test('live data through a real relay (LIVE_RELAY)', { skip: !process.env.LIVE_RE
     await page.click(`[data-tf="${tf}"]`);
     await page.waitForFunction(() => !document.querySelector('.chart-msg'), null, { timeout: 15000 });
   }
+  // real order through the live relay (fills only while the market is open)
+  await page.click('#buy');
+  await page.waitForSelector('.ticket');
+  await page.fill('#tQty', '1');
+  await page.click('#tReview');
+  await page.click('#rPlace');
+  await page.waitForSelector('.toast >> text=/Filled|Order placed/', { timeout: 20000 });
+  console.log('    live order:', await page.textContent('.toast'));
   assert.deepEqual(page.errors, []);
+  await page.context().close();
+});
+
+// ---- Phase 3: trading -----------------------------------------------------
+const OPEN = '2026-11-24T15:00:00Z'; // Tue 10:00 ET
+async function ticket(page, side = 'buy') {
+  await page.click('#' + side);
+  await page.waitForSelector('.ticket');
+}
+const lsState = page => page.evaluate(() => JSON.parse(localStorage.getItem('lpt.v1')));
+
+test('market buy: review, place, fills, shows in portfolio', async () => {
+  const page = await newPage('iPhone 14', { time: OPEN, symbol: 'AAPL' });
+  await relayMock(page, { price: () => 200 });
+  await page.goto(base);
+  await page.waitForFunction(() => document.querySelector('#pxMain')?.textContent === '200.00');
+  await ticket(page);
+  await page.fill('#tQty', '10');
+  assert.match(await page.textContent('#tEst'), /Est\. cost\$2,000\.50/);
+  await page.click('#tReview');
+  await page.waitForSelector('#rPlace');
+  assert.match(await page.textContent('.sheet'), /Buy 10 shares of AAPL at market/);
+  await page.click('#rPlace');
+  await page.waitForSelector('.toast >> text=Filled');
+  assert.match(await page.textContent('.toast'), /bought 10 AAPL at \$200\.05/);
+  const st = await lsState(page);
+  assert.equal(st.account.settled, 25000 - 2000.5);
+  assert.equal(st.trading.positions.AAPL.lots[0].qty, 10);
+  await page.click('[data-tab="portfolio"]');
+  await page.waitForSelector('[data-sym="AAPL"]');
+  assert.match(await page.textContent('main'), /10 sh · avg 200\.05/);
+  assert.match(await page.textContent('main'), /Bought 10 AAPL at 200\.05/);
+  assert.deepEqual(page.errors, []);
+  await page.context().close();
+});
+
+test('limit order rests, shows in open orders, can be canceled', async () => {
+  const page = await newPage('iPhone 14', { time: OPEN, symbol: 'AAPL' });
+  await relayMock(page, { price: () => 200 });
+  await page.goto(base);
+  await page.waitForFunction(() => document.querySelector('#pxMain')?.textContent === '200.00');
+  await ticket(page);
+  await page.click('[data-type="limit"]');
+  assert.equal(await page.inputValue('#tLimit'), '200');
+  await page.fill('#tLimit', '190');
+  await page.fill('#tQty', '5');
+  await page.click('[data-tif="gtc"]');
+  await page.click('#tReview');
+  await page.click('#rPlace');
+  await page.waitForSelector('.toast >> text=Order placed');
+  await page.click('[data-tab="portfolio"]');
+  await page.waitForSelector('[data-cancel]');
+  assert.match(await page.textContent('main'), /Buy 5 sh AAPL @ 190 limit/);
+  assert.match(await page.textContent('main'), /Buying power\$24,050\.00/);
+  await page.click('[data-cancel]');
+  await page.click('#doCancel');
+  await page.waitForSelector('text=No open orders.');
+  await page.context().close();
+});
+
+test('ticket validation and fractional rules show in plain language', async () => {
+  const page = await newPage('iPhone 14', { time: OPEN, symbol: 'AAPL' });
+  await relayMock(page, { price: () => 200 });
+  await page.goto(base);
+  await page.waitForFunction(() => document.querySelector('#pxMain')?.textContent === '200.00');
+  await ticket(page);
+  await page.click('[data-type="stop"]');
+  await page.fill('#tQty', '1.5');
+  await page.fill('#tStop', '190');
+  await page.click('#tReview');
+  const msgs = await page.textContent('#tMsgs');
+  assert.match(msgs, /need whole shares/);
+  assert.match(msgs, /buy stop must be above the current price/);
+  await page.click('[data-type="market"]');
+  await page.click('[data-mode="dollars"]');
+  await page.fill('#tQty', '500');
+  assert.match(await page.textContent('#tEst'), /Shares2\.499/);
+  await page.context().close();
+});
+
+test('sell side: MAX fills available shares; GFV warning shown', async () => {
+  const now = Date.parse(OPEN);
+  const state = JSON.parse(ACCOUNT(RELAY, { settings: { relayUrl: RELAY, symbol: 'AAPL', range: '1D', intervals: {} } }));
+  state.account = { startingBalance: 25000, settled: 100, unsettled: [{ amount: 2000, settles: '2026-11-25', src: 'x' }], createdAt: now - 864e5 * 10 };
+  state.trading = { positions: { AAPL: { name: 'Apple Inc.', lots: [{ id: 'l1', qty: 7, price: 190, time: now - 3600e3, fundSettle: '2026-11-25' }] } }, orders: [], fills: [], activity: [], violations: [], restrictedUntil: null, divs: { done: {}, pending: [] }, splits: {}, lastSync: { AAPL: '2026-11-24' } };
+  const page = await newPage('iPhone 14', { time: OPEN, state });
+  await relayMock(page, { price: () => 200 });
+  await page.goto(base);
+  await page.waitForFunction(() => document.querySelector('#pxMain')?.textContent === '200.00');
+  await ticket(page, 'sell');
+  await page.click('#tMax');
+  assert.equal(await page.inputValue('#tQty'), '7');
+  assert.match(await page.textContent('#tMsgs'), /good-faith violation/);
+  await page.click('#tReview');
+  assert.match(await page.textContent('.sheet'), /good-faith violation/);
+  await page.click('#rPlace');
+  await page.waitForSelector('.toast >> text=sold 7 AAPL');
+  const st = await lsState(page);
+  assert.equal(st.trading.violations.length, 1);
+  await page.context().close();
+});
+
+test('orders placed earlier fill on reopen from missed minute bars', async () => {
+  const placed = Date.parse('2026-11-24T15:00:00Z'), reopen = Date.parse('2026-11-24T18:00:00Z');
+  const state = JSON.parse(ACCOUNT(RELAY, { settings: { relayUrl: RELAY, symbol: 'AAPL', range: '1D', intervals: {} } }));
+  state.account = { startingBalance: 25000, settled: 25000, unsettled: [], createdAt: placed - 864e5 };
+  state.trading = { positions: {}, fills: [], activity: [], violations: [], restrictedUntil: null, divs: { done: {}, pending: [] }, splits: {}, lastSync: {},
+    orders: [{ id: 'o1', symbol: 'AAPL', side: 'buy', type: 'limit', qty: 10, limit: 195, tif: 'gtc', status: 'open', createdAt: placed, activeFrom: placed, checkedTo: placed, expiresAt: placed + 180 * 864e5, refPrice: 200 }] };
+  const page = await newPage('iPhone 14', { time: reopen, state });
+  const t0 = placed / 1000;
+  await relayMock(page, { price: () => 198, chart: u => u.searchParams.get('period1') ? { meta: {}, bars: [[t0 + 600, 199, 199, 198, 198.5, 0], [t0 + 3600, 197, 197, 194, 195.5, 0], [t0 + 7200, 196, 197, 195, 196, 0]], dividends: [], splits: [] } : null });
+  await page.goto(base);
+  await page.waitForSelector('.toast >> text=while the app was closed');
+  const st = await lsState(page);
+  assert.equal(st.trading.orders[0].status, 'filled');
+  assert.equal(st.trading.fills[0].price, 195);
+  assert.equal(st.trading.fills[0].time, (t0 + 3600) * 1000);
+  await page.context().close();
+});
+
+test('dividends for held shares are scheduled and shown', async () => {
+  const now = Date.parse(OPEN), bought = now - 30 * 864e5;
+  const state = JSON.parse(ACCOUNT(RELAY, { settings: { relayUrl: RELAY, symbol: 'AAPL', range: '1D', intervals: {} } }));
+  state.account = { startingBalance: 25000, settled: 23000, unsettled: [], createdAt: bought - 864e5 };
+  state.trading = { positions: { AAPL: { name: 'Apple Inc.', lots: [{ id: 'l1', qty: 10, price: 200, time: bought, fundSettle: null }] } }, orders: [], activity: [], violations: [], restrictedUntil: null, divs: { done: {}, pending: [] }, splits: {}, lastSync: {},
+    fills: [{ id: 'f1', orderId: 'o0', symbol: 'AAPL', side: 'buy', qty: 10, price: 200, time: bought }] };
+  const page = await newPage('iPhone 14', { time: OPEN, state });
+  await relayMock(page, { chart: u => u.searchParams.get('period1') ? { meta: {}, bars: [], dividends: [{ date: (now - 10 * 864e5) / 1000, amount: 0.26 }], splits: [] } : null });
+  await page.goto(base);
+  await page.click('[data-tab="portfolio"]');
+  await page.waitForSelector('text=/Dividend AAPL/');
+  assert.match(await page.textContent('main'), /\$2\.60/);
   await page.context().close();
 });

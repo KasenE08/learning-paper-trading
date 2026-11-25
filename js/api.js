@@ -28,3 +28,6 @@ export const search = q => call('/search', { q });
 export const quotes = symbols => call('/quote', { symbols: symbols.join(',') });
 export const chart = (symbol, range, interval, prepost) =>
   call('/chart', { symbol, range, interval, ...(prepost ? { prepost: '1' } : {}) });
+/** Bars between two times (unix seconds). */
+export const chartPeriod = (symbol, interval, period1, period2, { prepost = false, events = false } = {}) =>
+  call('/chart', { symbol, interval, period1: String(Math.floor(period1)), period2: String(Math.floor(period2)), ...(prepost ? { prepost: '1' } : {}), ...(events ? { events: '1' } : {}) }, 15000);

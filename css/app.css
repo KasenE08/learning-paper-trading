@@ -133,7 +133,53 @@ nav button.on { color: var(--cyan); text-shadow: var(--glow-c); }
 .sheet .opt.on { color: var(--cyan); text-shadow: var(--glow-c); }
 .sheet p { font-size: 13px; line-height: 1.6; margin: 0 0 16px; }
 .sheet .btns { margin: 0; }
-.toast { position: fixed; left: 50%; bottom: calc(90px + var(--sab)); transform: translateX(-50%); max-width: 340px; width: calc(100% - 48px); padding: 11px 14px; background: #06121ff2; border: 1px solid #3df2ff55; box-shadow: 0 0 18px #3df2ff22; font-size: 12px; z-index: 60; animation: fade .2s; }
+.toast { pointer-events: none; position: fixed; left: 50%; top: calc(var(--sat) + 40px); transform: translateX(-50%); max-width: 340px; width: calc(100% - 48px); padding: 11px 14px; background: #06121ff2; border: 1px solid #3df2ff55; box-shadow: 0 0 18px #3df2ff22; font-size: 12px; z-index: 60; animation: fade .2s; }
 @keyframes fade { from { opacity: 0; } }
 @keyframes up { from { transform: translateY(30px); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+
+/* ---- order ticket ---- */
+.sheet.ticket { max-height: 92dvh; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-top: 12px; }
+.tk-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.tk-head .x { margin-left: auto; padding: 8px 10px; color: var(--dim); font-size: 16px; }
+.tk-sym { margin: 4px 0 10px; font-size: 14px; }
+.seg { display: inline-flex; border: 1px solid var(--line-hi); }
+.seg button { padding: 9px 14px; font-size: 12px; letter-spacing: .12em; color: var(--dim); }
+.seg button + button { border-left: 1px solid var(--line-hi); }
+.seg button.on { color: var(--cyan); text-shadow: var(--glow-c); background: #3df2ff12; }
+.seg button:disabled { opacity: .3; }
+.seg.sm button { padding: 5px 10px; font-size: 10px; }
+.seg.side { flex: 1; }
+.seg.side button { flex: 1; padding: 11px; font-weight: 700; font-size: 14px; letter-spacing: .2em; }
+.seg.side[data-side="buy"] button.on { color: var(--green); text-shadow: var(--glow-g); background: #00ff9c14; }
+.seg.side[data-side="sell"] button.on { color: var(--red); text-shadow: var(--glow-r); background: #ff3b5c14; }
+.sect0 { font-size: 10px; letter-spacing: .2em; color: var(--dim); margin: 6px 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips button { padding: 7px 10px; border: 1px solid var(--line-hi); font-size: 12px; color: var(--dim); }
+.chips button.on { border-color: var(--cyan); color: var(--cyan); text-shadow: var(--glow-c); background: #3df2ff10; }
+.tdesc { font-size: 12px; color: var(--dim); margin: 8px 0 4px; line-height: 1.5; min-height: 36px; }
+.f { margin-top: 12px; }
+.f .lbl { margin-bottom: 6px; display: block; }
+.f .row .lbl { margin: 0; }
+.f .field { margin: 6px 0 0; }
+.f .row { align-items: center; }
+.field .max { color: var(--cyan); text-shadow: var(--glow-c); font-size: 11px; letter-spacing: .12em; padding: 2px 4px; }
+.toggle { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--white); }
+.toggle input { position: absolute; opacity: 0; }
+.toggle span { width: 38px; height: 22px; border: 1px solid var(--line-hi); border-radius: 11px; position: relative; flex: none; transition: .15s; }
+.toggle span:after { content: ''; position: absolute; width: 16px; height: 16px; border-radius: 50%; background: var(--dim); top: 2px; left: 2px; transition: .15s; }
+.toggle input:checked + span { border-color: var(--cyan); box-shadow: 0 0 8px #3df2ff44; }
+.toggle input:checked + span:after { left: 18px; background: var(--cyan); }
+.est { margin: 14px 0 6px; padding: 4px 12px; border: 1px solid var(--line); background: #0a1428; }
+.est .kv { font-size: 12px; padding: 6px 0; }
+.msg { font-size: 12px; line-height: 1.5; padding: 8px 10px; margin: 6px 0; border-left: 2px solid var(--cyan); background: #3df2ff0d; }
+.msg.err { color: var(--white); }
+.msg.gfv { color: var(--cyan); text-shadow: var(--glow-c); margin: 6px 16px; }
+.sheet .msg.gfv { margin: 6px 0; }
+.ticket #tReview { width: 100%; margin-top: 12px; }
+.small { font-size: 11px; }
+.item .rt { text-align: right; font-size: 13px; } .item .rt small { font-size: 11px; }
+.item .cancel { font-size: 10px; letter-spacing: .12em; color: var(--cyan); border: 1px solid #3df2ff55; padding: 6px 8px; flex: none; }
+.item.act { padding: 9px 2px; font-size: 12px; }
+.item .mid div.up, .item .mid div.down { font-size: 12px; }
+[hidden] { display: none !important; }

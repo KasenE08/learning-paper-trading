@@ -138,3 +138,51 @@ export function isRegularHours(ts) {
   const mins = p.hh * 60 + p.mm;
   return mins >= h.open && mins < h.close;
 }
+
+// ---- broker (Fidelity-style) trading windows used by the order engine ------
+// Pre-market orders: 7:00–9:28 ET. After-hours orders: close → close + 4h (16:00–20:00, or 13:00–17:00 on early-close days).
+export const BROKER = { PRE_START: 420, PRE_END: 568 };
+
+const parseYmd = s => s.split('-').map(Number);
+export const ymdOf = ms => etYmd(new Date(ms));
+export function ymdAddTradingDays(s, n) { return ymd(...addTradingDays(...parseYmd(s), n)); }
+export function ymdAddDays(s, n) { const [yy, mm, dd] = shift(...parseYmd(s), n); return ymd(yy, mm, dd); }
+/** First trading day on or after the given YYYY-MM-DD. */
+export function onOrAfterTradingDay(s) { const [y, m, d] = parseYmd(s); return isTradingDay(y, m, d) ? s : ymd(...nextTradingDay(y, m, d)); }
+
+/** Session windows (ms) for a trading day, or null if the market is closed that day. */
+export function brokerWindows(y, m, d) {
+  const h = dayHours(y, m, d);
+  if (!h) return null;
+  const t = min => etDate(y, m, d, min).getTime();
+  return { pre: [t(BROKER.PRE_START), t(BROKER.PRE_END)], regular: [t(h.open), t(h.close)], post: [t(h.close), t(h.postClose)], early: h.early };
+}
+
+/** Which broker session an instant falls in: 'pre' | 'regular' | 'post' | 'closed'. */
+export function brokerSessionAt(ms) {
+  const p = etParts(new Date(ms)), w = brokerWindows(p.y, p.m, p.d);
+  if (!w) return 'closed';
+  for (const k of ['pre', 'regular', 'post']) if (ms >= w[k][0] && ms < w[k][1]) return k;
+  return 'closed';
+}
+
+/** The regular session that is in progress, or the next one. Returns [startMs, endMs]. */
+export function currentOrNextRegular(ms) {
+  const p = etParts(new Date(ms));
+  let day = [p.y, p.m, p.d];
+  const w = brokerWindows(...day);
+  if (w && ms < w.regular[1]) return w.regular;
+  day = nextTradingDay(...day);
+  return brokerWindows(...day).regular;
+}
+
+/** The extended-hours session an order placed now would trade in. Returns { kind, window:[s,e] }. */
+export function targetExtendedSession(ms) {
+  const p = etParts(new Date(ms)), w = brokerWindows(p.y, p.m, p.d);
+  if (w) {
+    if (ms < w.pre[1]) return { kind: 'pre', window: [Math.max(ms, w.pre[0]), w.pre[1]] };
+    if (ms < w.post[1]) return { kind: 'post', window: [Math.max(ms, w.post[0]), w.post[1]] };
+  }
+  const n = brokerWindows(...nextTradingDay(p.y, p.m, p.d));
+  return { kind: 'pre', window: n.pre };
+}

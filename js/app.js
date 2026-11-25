@@ -3,20 +3,40 @@ import * as api from './api.js';
 import * as fmt from './format.js';
 import { marketState, SESSION } from './market.js';
 import { createCandleChart, TIMEFRAMES, INTERVAL_LABEL } from './chart.js';
-import { REFRESH_MS, CHART_REFRESH_MS, DEFAULT_SYMBOL, MIN_BALANCE, MAX_BALANCE, APP_VERSION, RELAY_URL } from './config.js';
+import { CHART_REFRESH_MS, DEFAULT_SYMBOL, MIN_BALANCE, MAX_BALANCE, APP_VERSION, RELAY_URL } from './config.js';
+import * as E from './engine.js';
+import * as trader from './trader.js';
+import { openTicket } from './ticket.js';
+import { $, BR, sheet, closeSheet, toast } from './ui.js';
 
-const $ = (sel, root = document) => root.querySelector(sel);
 const app = $('#app');
-const BR = '<i class="br tl"></i><i class="br tr"></i><i class="br bl"></i><i class="br brr"></i>';
-
-const ui = { tab: 'home', sub: null, chart: null, quote: null, meta: null, chartErr: null, loading: false, lastChartLoad: 0 };
+const ui = { tab: 'home', sub: null, chart: null, meta: null, lastChartLoad: 0 };
 
 // ---------------------------------------------------------------- boot
+let started = false;
 function boot() {
   if (!store.get().account) return renderOnboarding();
   renderShell();
+  if (started) return;
+  started = true;
   startClock();
-  startPolling();
+  trader.onUpdate(onTraderUpdate);
+  trader.start(() => [symbol()]);
+}
+
+function onTraderUpdate(ev) {
+  if (ui.tab === 'home') {
+    renderQuote(); renderAccount();
+    const q = trader.getQuote(symbol());
+    if (q) ui.chart?.live(q);
+    if (ev.kind === 'quotes' && marketState().session !== SESSION.CLOSED && Date.now() - ui.lastChartLoad > CHART_REFRESH_MS) loadChart();
+  }
+  if (ui.tab === 'portfolio' && !document.querySelector('.scrim')) renderPortfolio($('#main'));
+  const fills = ev.kind === 'quotes' ? ev.fills : ev.kind === 'catchup' ? ev.events.filter(x => x.kind === 'fill').map(x => x.fill) : [];
+  if (fills?.length) {
+    const f = fills[0];
+    toast(`${fills.length > 1 ? fills.length + ' orders filled. ' : ''}${f.side === 'buy' ? 'Bought' : 'Sold'} ${+f.qty.toFixed(3)} ${f.symbol} at $${fmt.price(f.price)}${ev.kind === 'catchup' ? ' while the app was closed' : ''}.`, 5000);
+  }
 }
 
 // ---------------------------------------------------------------- onboarding
@@ -83,12 +103,11 @@ const interval = () => { const tf = TIMEFRAMES[timeframe()], saved = store.get()
 
 // ---------------------------------------------------------------- home
 function renderHome(main) {
-  const acct = store.get().account;
   main.innerHTML = `
   <section class="screen">
     <div class="frame acct">${BR}
       <div class="lbl">Account value</div>
-      <div class="big w" id="acctVal">${fmt.money(acct.cash)}</div>
+      <div class="big w" id="acctVal">${fmt.money(trader.summary().total)}</div>
       <div class="row sub"><span class="flat" id="dayPl">■ ${fmt.signedMoney(0)} (${fmt.pct(0)})</span><span class="lbl">Today</span></div>
     </div>
     <div class="frame chartbox">${BR}
@@ -125,15 +144,30 @@ function renderHome(main) {
         closeSheet(); $('#ivBtn').textContent = interval() + ' ▾'; loadChart();
       }));
   });
-  const soon = () => toast('Placing orders arrives in Phase 3 (trading engine).');
-  $('#buy').addEventListener('click', soon);
-  $('#sell').addEventListener('click', soon);
+  $('#buy').addEventListener('click', () => {
+    const q = trader.getQuote(symbol());
+    if (q?.type && q.type !== 'EQUITY') return toast(`${symbol()} is an ${q.type === 'ETF' ? 'ETF' : 'fund'}. This app trades individual stocks only.`);
+    openTicket({ symbol: symbol(), name: q?.name || ui.meta?.name, side: 'buy' });
+  });
+  $('#sell').addEventListener('click', () => {
+    if (E.position(store.get(), symbol()).qty <= 0) return toast(`You don't own any ${symbol()}. This is a cash account, so you can only sell shares you own.`);
+    openTicket({ symbol: symbol(), name: trader.getQuote(symbol())?.name || ui.meta?.name, side: 'sell' });
+  });
 
   renderTip();
   ui.chart = createCandleChart($('#chart'), { onHover: showLegend });
-  if (ui.quote && ui.quote.symbol === symbol()) renderQuote();
+  renderQuote(); renderAccount();
   loadChart();
-  refreshQuote();
+  trader.freshQuote(symbol());
+}
+
+function renderAccount() {
+  const el = $('#acctVal'); if (!el) return;
+  const sm = trader.summary();
+  el.textContent = fmt.money(sm.total);
+  const d = $('#dayPl');
+  d.className = fmt.tone(sm.day);
+  d.textContent = `${fmt.arrow(sm.day)} ${fmt.signedMoney(sm.day)} (${fmt.pct(sm.dayPct)})`;
 }
 
 function showLegend(d) {
@@ -162,7 +196,8 @@ async function loadChart() {
     if (!data.bars.length) return chartMsg('No price data for this timeframe.');
     ui.chart.setData(data.bars, iv);
     chartMsg(null);
-    if (ui.quote && ui.quote.symbol === sym) ui.chart.live(ui.quote);
+    const q = trader.getQuote(sym);
+    if (q) ui.chart.live(q);
   } catch (e) {
     if (seq !== chartSeq) return;
     if (e.code === 'NO_RELAY') chartMsg(`The data relay isn't set up yet.<br><button id="setRelay">SET UP DATA RELAY</button>`);
@@ -173,10 +208,10 @@ async function loadChart() {
 }
 
 function renderQuote() {
-  const q = ui.quote; if (!q || q.error || !$('#pxMain')) return;
+  const q = trader.getQuote(symbol()); if (!q || q.error || !$('#pxMain')) return;
   const chg = q.price - q.previousClose, chgPct = q.previousClose ? (chg / q.previousClose) * 100 : 0;
   $('#pxMain').textContent = fmt.price(q.price);
-  const c = $('#pxChg'); c.className = 'chg ' + fmt.tone(chg); c.textContent = `${fmt.arrow(chg)} ${fmt.price(Math.abs(chg))} ${fmt.pct(chgPct)}`;
+  const c = $('#pxChg'); c.className = 'chg ' + fmt.tone(chg); c.textContent = `${fmt.arrow(chg)} ${Math.abs(chg).toFixed(2)} ${fmt.pct(chgPct)}`;
   if (q.name) $('#tkName').textContent = q.name;
   const ext = $('#pxExt');
   if (q.extended && q.last != null && Math.abs(q.last - q.price) > 1e-9) {
@@ -187,36 +222,6 @@ function renderQuote() {
   } else ext.innerHTML = '';
 }
 const isPreMarket = q => { const s = marketState(new Date(q.lastTime * 1000)).session; return s === SESSION.PRE; };
-
-let quoteBusy = false, lastQuoteAt = 0;
-async function refreshQuote() {
-  if (quoteBusy || !api.relayUrl()) return;
-  quoteBusy = true; lastQuoteAt = Date.now();
-  const sym = symbol();
-  try {
-    const res = await api.quotes([sym]);
-    const q = res.quotes[sym];
-    if (q && !q.error && sym === symbol()) {
-      ui.quote = q;
-      renderQuote();
-      ui.chart?.live(q);
-    }
-  } catch { /* chart area already shows relay errors */ }
-  finally { quoteBusy = false; }
-}
-
-// ---------------------------------------------------------------- polling & clock
-function startPolling() {
-  setInterval(() => {
-    if (document.hidden || ui.tab !== 'home') return;
-    const open = marketState().session !== SESSION.CLOSED;
-    if (open) {
-      refreshQuote();
-      if (Date.now() - ui.lastChartLoad > CHART_REFRESH_MS) loadChart();
-    } else if (Date.now() - lastQuoteAt > 5 * 60000) refreshQuote(); // closed: every 5 min
-  }, REFRESH_MS);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && ui.tab === 'home') { refreshQuote(); loadChart(); } });
-}
 
 function startClock() {
   const tick = () => {
@@ -269,7 +274,6 @@ function renderSearch(main) {
     const b = e.target.closest('[data-sym]'); if (!b) return;
     store.addRecent({ symbol: b.dataset.sym, name: b.dataset.name, exchange: b.dataset.ex, type: b.dataset.type });
     store.update(s => { s.settings.symbol = b.dataset.sym; });
-    ui.quote = null;
     go('home');
   });
   showRecent();
@@ -278,19 +282,72 @@ function renderSearch(main) {
 const itemHtml = r => `<button class="item" data-sym="${fmt.esc(r.symbol)}" data-name="${fmt.esc(r.name)}" data-ex="${fmt.esc(r.exchange || '')}" data-type="${fmt.esc(r.type || '')}">
   <span class="sym w">${fmt.esc(r.symbol)}</span><span class="mid"><div>${fmt.esc(r.name)}</div><small>${fmt.esc(r.exchange || '')}</small></span></button>`;
 
-// ---------------------------------------------------------------- portfolio (Phase 4 fills this in)
+// ---------------------------------------------------------------- portfolio (Phase 4 adds P&L history, win rate, S&P 500)
 function renderPortfolio(main) {
-  const a = store.get().account;
+  const st = store.get(), sm = trader.summary(), now = Date.now();
+  const orders = E.openOrders(st);
+  const pendDiv = st.trading.divs.pending;
+  const vio = E.violationsInYear(st, now);
+  const expiry = o => !o.expiresAt ? 'after entry fills' : o.tif === 'gtc' && !o.ext ? 'GTC · until ' + new Date(o.expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : o.ext ? (o.ext === 'pre' ? 'pre-market only' : 'after-hours only') : 'Day';
   main.innerHTML = `
   <section class="screen">
     <div class="head"><h2 class="w">PORTFOLIO</h2></div>
-    <div class="card">
-      <div class="kv"><span class="d">Cash</span><span class="w">${fmt.money(a.cash)}</span></div>
-      <div class="kv"><span class="d">Starting balance</span><span class="w">${fmt.money(a.startingBalance)}</span></div>
-      <div class="kv"><span class="d">Account opened</span><span class="w">${new Date(a.createdAt).toLocaleDateString()}</span></div>
+    <div class="frame acct">${BR}
+      <div class="lbl">Account value</div>
+      <div class="big w">${fmt.money(sm.total)}</div>
+      <div class="row sub"><span class="${fmt.tone(sm.day)}">${fmt.arrow(sm.day)} ${fmt.signedMoney(sm.day)} (${fmt.pct(sm.dayPct)})</span><span class="lbl">Today</span></div>
     </div>
-    <div class="empty">No positions yet.<br>Positions, P&amp;L, trade history and the S&amp;P 500 comparison arrive in Phase 4.</div>
+    ${sm.restricted ? `<div class="msg gfv">⚠ Restricted until ${fmt.day(st.trading.restrictedUntil)}: after ${E.RULES.GFV_LIMIT} good-faith violations, you can only buy with settled cash.</div>` : ''}
+    <div class="card">
+      <div class="kv"><span class="d">Buying power</span><span class="c">${fmt.money(sm.buyingPower)}</span></div>
+      <div class="kv"><span class="d">Settled cash</span><span class="w">${fmt.money(sm.settled)}</span></div>
+      ${sm.unsettled.map(u => `<div class="kv"><span class="d">Unsettled · settles ${fmt.day(u.settles)}</span><span class="w">${fmt.money(u.amount)}</span></div>`).join('')}
+      ${pendDiv.map(d => `<div class="kv"><span class="d">Dividend ${fmt.esc(d.symbol)} · pays ~${fmt.day(d.payDate)}</span><span class="up">${fmt.money(d.amount)}</span></div>`).join('')}
+      <div class="kv"><span class="d">Good-faith violations (12 mo)</span><span class="${vio ? 'c' : 'w'}">${vio} / ${E.RULES.GFV_LIMIT}</span></div>
+    </div>
+    <div class="sect">POSITIONS</div>
+    <div class="list">${sm.rows.length ? sm.rows.map(r => `
+      <button class="item" data-sym="${fmt.esc(r.symbol)}">
+        <span class="sym w">${fmt.esc(r.symbol)}</span>
+        <span class="mid"><div>${+r.qty.toFixed(3)} sh · avg ${fmt.price(r.avg)}</div><small>${r.hasQuote ? 'last ' + fmt.price(r.price) : 'waiting for price…'}</small></span>
+        <span class="rt"><div class="w">${fmt.money(r.value)}</div><small class="${fmt.tone(r.unrealized)}">${fmt.signedMoney(r.unrealized)}</small></span>
+      </button>`).join('') : '<div class="empty">No positions yet. Find a stock in Search, then tap BUY.</div>'}</div>
+    <div class="sect">OPEN ORDERS</div>
+    <div class="list">${orders.length ? orders.map(o => `
+      <div class="item">
+        <span class="mid"><div class="${o.side === 'buy' ? 'up' : 'down'}">${fmt.esc(E.describe(o))}</div><small>${o.status === 'pending' ? 'waits for bracket entry' : expiry(o)}${o.type === 'trailing_stop' ? ` · stop now ${fmt.price(o.side === 'sell' ? o.hwm - (o.trail.kind === '%' ? o.hwm * o.trail.value / 100 : o.trail.value) : o.lwm + (o.trail.kind === '%' ? o.lwm * o.trail.value / 100 : o.trail.value))}` : ''}${o.triggered ? ' · stop triggered' : ''}</small></span>
+        <button class="cancel" data-cancel="${o.id}">CANCEL</button>
+      </div>`).join('') : '<div class="empty">No open orders.</div>'}</div>
+    <div class="sect">ACTIVITY</div>
+    <div class="list">${st.trading.activity.slice(0, 15).map(a => `
+      <div class="item act"><span class="mid"><div>${activityText(a)}</div><small>${new Date(a.time).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</small></span></div>`).join('') || '<div class="empty">Nothing yet.</div>'}</div>
+    <div class="empty">P&amp;L history, win rate and the S&amp;P 500 comparison arrive in Phase 4.</div>
   </section>`;
+  main.onclick = e => {
+    const c = e.target.closest('[data-cancel]');
+    if (c) {
+      const o = st.trading.orders.find(x => x.id === c.dataset.cancel);
+      return sheet(`<h3>CANCEL ORDER</h3><p class="w">${fmt.esc(E.describe(o))}</p>${o.group ? '<p class="d">Linked orders in this group are canceled too.</p>' : ''}
+        <div class="btns"><button class="btn" data-close style="border-color:var(--line-hi)">KEEP</button><button class="btn cy" id="doCancel">CANCEL ORDER</button></div>`,
+        el => $('#doCancel', el).addEventListener('click', () => { trader.cancel(o.id); closeSheet(); toast('Order canceled.'); renderPortfolio(main); }));
+    }
+    const p = e.target.closest('[data-sym]');
+    if (p) { store.update(s => { s.settings.symbol = p.dataset.sym; }); go('home'); }
+  };
+}
+
+function activityText(a) {
+  const sym = a.symbol ? `<b class="w">${fmt.esc(a.symbol)}</b> ` : '';
+  switch (a.kind) {
+    case 'filled': return `<span class="${a.side === 'buy' ? 'up' : 'down'}">${a.side === 'buy' ? 'Bought' : 'Sold'}</span> ${+a.qty.toFixed(3)} ${sym}at ${fmt.price(a.price)}${a.realized != null ? ` · <span class="${fmt.tone(a.realized)}">${fmt.signedMoney(a.realized)}</span>` : ''}`;
+    case 'placed': return `Placed: ${fmt.esc(a.text)}`;
+    case 'canceled': return `Canceled: ${fmt.esc(a.text)}`;
+    case 'expired': return `Expired: ${fmt.esc(a.text)}`;
+    case 'rejected': return `Rejected: ${fmt.esc(a.text)} <span class="d">(${fmt.esc(a.reason)})</span>`;
+    case 'dividend': return `<span class="up">Dividend paid</span> ${sym}${fmt.money(a.amount)}`;
+    case 'gfv': case 'restricted': return `<span class="c">⚠ ${fmt.esc(a.text)}</span>`;
+    default: return fmt.esc(a.text || a.kind);
+  }
 }
 
 // ---------------------------------------------------------------- menu
@@ -371,23 +428,6 @@ function renderTip() {
   const t = STARTER_TIPS.find(x => !store.get().dismissedTips[x.id]);
   slot.innerHTML = t ? `<div class="tip"><span class="c">› TIP</span> ${t.text}<button class="x" aria-label="Dismiss tip">✕</button></div>` : '';
   slot.querySelector('.x')?.addEventListener('click', () => { store.update(s => { s.dismissedTips[t.id] = Date.now(); }); renderTip(); });
-}
-
-// ---------------------------------------------------------------- overlays
-function sheet(html, init) {
-  closeSheet();
-  const s = document.createElement('div');
-  s.className = 'scrim'; s.innerHTML = `<div class="sheet" role="dialog">${html}</div>`;
-  s.addEventListener('click', e => { if (e.target === s || e.target.closest('[data-close]')) closeSheet(); });
-  document.body.appendChild(s);
-  init?.($('.sheet', s));
-}
-function closeSheet() { document.querySelector('.scrim')?.remove(); }
-let toastTimer;
-function toast(msg) {
-  document.querySelector('.toast')?.remove(); clearTimeout(toastTimer);
-  const t = document.createElement('div'); t.className = 'toast'; t.innerHTML = `<span class="c">›</span> ${fmt.esc(msg)}`;
-  document.body.appendChild(t); toastTimer = setTimeout(() => t.remove(), 3200);
 }
 
 // ---------------------------------------------------------------- service worker
