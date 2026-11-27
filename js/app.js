@@ -10,6 +10,7 @@ import { openTicket } from './ticket.js';
 import { renderPortfolio, refreshPortfolio } from './portfolio.js';
 import { exportBackup, importFlow, resetFlow } from './backup.js';
 import * as learn from './learn.js';
+import { applyTextScale, pullToRefresh } from './ux.js';
 import { afterFills } from './recap.js';
 import { DEFAULTS as IND_DEFAULTS } from './indicators.js';
 import { $, BR, sheet, closeSheet, toast } from './ui.js';
@@ -20,6 +21,7 @@ const ui = { tab: 'home', sub: null, chart: null, meta: null, lastChartLoad: 0 }
 // ---------------------------------------------------------------- boot
 let started = false;
 function boot() {
+  applyTextScale(store.get().settings.textSize || 'auto');
   if (!store.get().account) return renderOnboarding();
   renderShell();
   if (started) return;
@@ -31,6 +33,7 @@ function boot() {
 }
 
 function onTraderUpdate(ev) {
+  renderNet();
   if (ui.tab === 'home') {
     renderQuote(); renderAccount();
     const q = trader.getQuote(symbol());
@@ -91,13 +94,33 @@ function renderOnboarding() {
 function renderShell() {
   app.innerHTML = `
     <div class="status" id="status"></div>
+    <div class="netbar" id="netbar" role="status" aria-live="polite" hidden></div>
     <main id="main"></main>
     <nav id="nav">
       <button data-tab="home">◈ HOME</button><button data-tab="search">⌕ SEARCH</button>
       <button data-tab="portfolio">▤ PORTFOLIO</button><button data-tab="menu">≡ MENU</button>
     </nav>`;
   $('#nav').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (b) go(b.dataset.tab); });
+  pullToRefresh($('#main'), async () => {
+    await trader.catchUp();
+    await trader.poll();
+    if (ui.tab === 'home') await loadChart(true);
+    if (ui.tab === 'portfolio') renderPortfolio($('#main'), { go });
+  });
   go('home');
+  renderNet();
+}
+
+/** Banner when offline or when the price source isn't answering. */
+function renderNet() {
+  const el = $('#netbar'); if (!el) return;
+  const n = trader.netStatus();
+  const at = n.lastQuoteAt ? new Date(n.lastQuoteAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : null;
+  if (n.state === 'ok') { el.hidden = true; return; }
+  el.hidden = false;
+  el.textContent = n.state === 'offline'
+    ? `⚠ OFFLINE · ${at ? 'showing prices from ' + at : 'no prices yet'} · orders need a connection`
+    : `⚠ PRICES DELAYED · the data source isn't responding, retrying${at ? ' · last update ' + at : ''}`;
 }
 
 function go(tab, sub = null) {
@@ -126,12 +149,12 @@ function renderHome(main) {
     </div>
     <div class="frame chartbox">${BR}
       <div class="row">
-        <div><button class="tk w" id="tkBtn">${fmt.esc(symbol())}<span class="caret">▾</span></button><div class="nm" id="tkName">&nbsp;</div></div>
+        <div><button class="tk w" id="tkBtn" aria-label="Change stock. Current: ${fmt.esc(symbol())}">${fmt.esc(symbol())}<span class="caret">▾</span></button><div class="nm" id="tkName">&nbsp;</div></div>
         <div class="px"><div id="pxMain" class="w">—</div><div class="chg" id="pxChg">&nbsp;</div></div>
       </div>
       <div class="ext" id="pxExt"></div>
       <div class="legend" id="legend"></div>
-      <div class="chart" id="chart"></div>
+      <div class="chart" id="chart" role="img" aria-label="Price chart"></div>
       <div class="ipane" id="paneRsi" hidden><span class="plbl">RSI</span></div>
       <div class="ipane" id="paneMacd" hidden><span class="plbl">MACD</span></div>
       <div class="tf" id="tf">
@@ -142,7 +165,7 @@ function renderHome(main) {
       </div>
     </div>
     <div class="btns"><button class="btn buy" id="buy">BUY</button><button class="btn sell" id="sell">SELL</button></div>
-    <div id="tipSlot"></div>
+    <div id="tipSlot" aria-live="polite"></div>
   </section>`;
 
   $('#tkBtn').addEventListener('click', () => go('search'));
@@ -211,23 +234,40 @@ function chartMsg(html) {
 }
 
 let chartSeq = 0;
-async function loadChart() {
+// Recent charts are kept (memory + a few on the phone) so switching tabs is instant and charts show offline.
+const CKEY = 'lpt.charts';
+const chartCache = new Map(Object.entries((() => { try { return JSON.parse(localStorage.getItem(CKEY) || '{}'); } catch { return {}; } })()));
+function cacheChart(key, data) {
+  chartCache.delete(key); chartCache.set(key, { data, at: Date.now() });
+  const keep = [...chartCache].slice(-4);
+  try { localStorage.setItem(CKEY, JSON.stringify(Object.fromEntries(keep))); } catch { /* storage full: memory only */ }
+}
+function drawChart(data, iv, sym) {
+  ui.meta = data.meta;
+  $('#tkName').textContent = data.meta.name || '';
+  if (!data.bars.length) return chartMsg('No price data for this timeframe.');
+  ui.chart.setData(data.bars, iv, data.meta.chartPreviousClose);
+  $('#chart').setAttribute('aria-label', `${sym} price chart, ${timeframe()}, ${data.bars.length} candles. Last close ${fmt.price(data.bars.at(-1)[4])}.`);
+  chartMsg(null);
+  const q = trader.getQuote(sym);
+  if (q && !q.stale) ui.chart.live(q);
+}
+async function loadChart(force = false) {
   if (!ui.chart) return;
   const seq = ++chartSeq, sym = symbol(), tf = TIMEFRAMES[timeframe()], iv = interval();
+  const key = `${sym}|${tf.range}|${iv}`, hit = chartCache.get(key);
   showLegend(null);
-  chartMsg('<span class="spin"></span>');
+  if (hit) { drawChart(hit.data, iv, sym); if (!force && Date.now() - hit.at < 20000) { ui.lastChartLoad = hit.at; return; } }
+  else chartMsg('<span class="spin"></span>');
   try {
     const data = await api.chart(sym, tf.range, iv, tf.prepost);
     if (seq !== chartSeq || !ui.chart) return;
-    ui.meta = data.meta; ui.lastChartLoad = Date.now();
-    $('#tkName').textContent = data.meta.name || '';
-    if (!data.bars.length) return chartMsg('No price data for this timeframe.');
-    ui.chart.setData(data.bars, iv, data.meta.chartPreviousClose);
-    chartMsg(null);
-    const q = trader.getQuote(sym);
-    if (q) ui.chart.live(q);
+    cacheChart(key, data);
+    if (seq !== chartSeq || !ui.chart) return;
+    ui.lastChartLoad = Date.now();
+    drawChart(data, iv, sym);
   } catch (e) {
-    if (seq !== chartSeq) return;
+    if (seq !== chartSeq || hit) return; // keep showing the cached chart
     if (e.code === 'NO_RELAY') chartMsg(`The data relay isn't set up yet.<br><button id="setRelay">SET UP DATA RELAY</button>`);
     else chartMsg(`Couldn't load the chart.<br><span class="d">${fmt.esc(e.message)}</span><br><button id="retry">RETRY</button>`);
     $('#setRelay')?.addEventListener('click', () => go('menu', 'relay'));
@@ -240,7 +280,7 @@ function renderQuote() {
   const chg = q.price - q.previousClose, chgPct = q.previousClose ? (chg / q.previousClose) * 100 : 0;
   $('#pxMain').textContent = fmt.price(q.price);
   if (Math.abs(chgPct) >= 8) learn.emit('bigmove');
-  const c = $('#pxChg'); c.className = 'chg ' + fmt.tone(chg); c.textContent = `${fmt.arrow(chg)} ${Math.abs(chg).toFixed(2)} ${fmt.pct(chgPct)}`;
+  const c = $('#pxChg'); c.className = 'chg ' + fmt.tone(chg); c.textContent = `${fmt.arrow(chg)} ${Math.abs(chg).toFixed(q.price < 1 ? 4 : 2)} ${fmt.pct(chgPct)}`;
   if (q.name) $('#tkName').textContent = q.name;
   const ext = $('#pxExt');
   if (q.extended && q.last != null && Math.abs(q.last - q.price) > 1e-9) {
@@ -339,6 +379,7 @@ function renderMenu(main) {
     <div class="head"><h2 class="w">MENU</h2></div>
     <div class="list">
       <button class="item" data-sub="relay"><span class="mid"><div class="w">Data relay</div><small>${connected ? 'Connected to your Cloudflare Worker' : 'Not set up — needed for live prices'}</small></span><span class="${connected ? 'c' : 'd'}">${connected ? '●' : '○'}</span></button>
+      <button class="item" data-act="text"><span class="mid"><div class="w">Text size</div><small>${textSizeLabel()}</small></span><span class="d">›</span></button>
       <button class="item" data-sub="about"><span class="mid"><div class="w">About &amp; disclaimer</div><small>Not financial advice · credits</small></span><span class="d">›</span></button>
     </div>
     <div class="sect">YOUR DATA · STORED ONLY ON THIS PHONE</div>
@@ -355,6 +396,7 @@ function renderMenu(main) {
     if (a.dataset.act === 'export') { const r = await exportBackup(); if (r !== 'canceled') toast('Backup saved.'); }
     if (a.dataset.act === 'import') importFlow();
     if (a.dataset.act === 'reset') resetFlow();
+    if (a.dataset.act === 'text') textSizeSheet();
   };
 }
 
@@ -406,6 +448,20 @@ function renderAbout(main) {
     </div>
   </section>`;
   $('#back').addEventListener('click', () => go('menu'));
+}
+
+// ---------------------------------------------------------------- text size
+const TEXT_SIZES = [['auto', 'Match iPhone setting'], ['1', 'Standard'], ['1.15', 'Large'], ['1.3', 'Extra large']];
+const textSizeLabel = () => TEXT_SIZES.find(([k]) => k === (store.get().settings.textSize || 'auto'))[1];
+function textSizeSheet() {
+  const cur = store.get().settings.textSize || 'auto';
+  sheet(`<h3>TEXT SIZE</h3>${TEXT_SIZES.map(([k, l]) => `<button class="opt ${k === cur ? 'on' : ''}" data-ts="${k}">${l}</button>`).join('')}
+    <p class="d small" style="margin-top:12px">“Match iPhone setting” follows Settings → Display &amp; Brightness → Text Size.</p>`, el => el.addEventListener('click', e => {
+    const b = e.target.closest('[data-ts]'); if (!b) return;
+    store.update(s => { s.settings.textSize = b.dataset.ts; });
+    applyTextScale(b.dataset.ts);
+    closeSheet(); go('menu');
+  }));
 }
 
 // ---------------------------------------------------------------- hints (learning layer)
@@ -491,6 +547,15 @@ function indSettingsSheet(k) {
 }
 
 // ---------------------------------------------------------------- service worker
-if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+// Updates apply on the first open: a new service worker takes over and the page reloads once.
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('sw.js').then(r => r.update()).catch(() => {});
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || sessionStorage.getItem('lpt-reloaded')) return;
+    sessionStorage.setItem('lpt-reloaded', '1');
+    location.reload();
+  });
+}
 
 boot();

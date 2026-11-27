@@ -1,6 +1,7 @@
 // Candlestick chart (TradingView Lightweight Charts, vendored).
 import { etOffsetMinutes, isRegularHours, etYmd } from './market.js';
 import * as I from './indicators.js';
+import { textScale } from './ux.js';
 
 // Timeframes: range chips, each with the candle sizes Yahoo serves for it.
 export const TIMEFRAMES = {
@@ -22,7 +23,7 @@ function baseChart(el, extra = {}) {
   const LWC = window.LightweightCharts;
   return LWC.createChart(el, {
     autoSize: true,
-    layout: { attributionLogo: false, background: { type: 'solid', color: 'transparent' }, textColor: C.text, fontFamily: 'JetBrains Mono, ui-monospace, monospace', fontSize: 10 },
+    layout: { attributionLogo: false, background: { type: 'solid', color: 'transparent' }, textColor: C.text, fontFamily: 'JetBrains Mono, ui-monospace, monospace', fontSize: Math.round(10 * textScale()) },
     grid: { vertLines: { visible: false }, horzLines: { color: C.grid, style: LWC.LineStyle.Dashed } },
     rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: 0.08 } },
     timeScale: { borderVisible: false, rightOffset: 3, fixLeftEdge: true, lockVisibleTimeRangeOnResize: true },
@@ -94,6 +95,9 @@ export function createCandleChart(el, { onHover, style = 'candles', rsiEl = null
     setData(newBars, iv, base = null) {
       interval = iv; intraday = iv in INTERVAL_SEC; baseline = base > 0 ? base : null;
       bars = intraday ? clampOutliers(newBars) : newBars.slice();
+      // stocks under $1 need 4 decimals on the price axis
+      const fmt = bars.length && bars.at(-1)[4] < 1 ? { type: 'price', precision: 4, minMove: 0.0001 } : { type: 'price', precision: 2, minMove: 0.01 };
+      series.applyOptions({ priceFormat: fmt }); line.applyOptions({ priceFormat: fmt });
       chart.applyOptions({ timeScale: { timeVisible: intraday, secondsVisible: false } });
       series.setData(bars.map(toPoint));
       line.setData(bars.map(b => ({ time: shiftTs(b[0]), value: b[4] })));

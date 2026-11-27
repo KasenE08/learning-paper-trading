@@ -35,4 +35,4 @@ LIVE_RELAY=http://localhost:8787 npm test  # adds a live-data test
 - [x] Phase 3: trading engine
 - [x] Phase 4: portfolio
 - [x] Phase 5: learning layer
-- [ ] Phase 6: polish + full mobile testing
+- [x] Phase 6: polish + full mobile testing

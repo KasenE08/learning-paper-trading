@@ -11,6 +11,20 @@ import { REFRESH_MS } from './config.js';
 
 const GAP_MS = 2 * 60 * 1000; // a live price can only advance an order checked within the last 2 minutes
 const quotes = new Map();
+// Last known prices survive restarts, so the app opens with numbers even when offline.
+const QKEY = 'lpt.quotes';
+try { for (const [k, v] of Object.entries(JSON.parse(localStorage.getItem(QKEY) || '{}'))) quotes.set(k, { ...v, stale: true }); } catch { /* ignore */ }
+const saveQuotes = () => { try { localStorage.setItem(QKEY, JSON.stringify(Object.fromEntries([...quotes].slice(-40)))); } catch { /* ignore */ } };
+
+// Connection status for the banner: ok | offline | down (data source not answering)
+let net = { state: 'ok', lastOk: Date.now(), fails: 0 };
+export const netStatus = () => ({ ...net, lastQuoteAt: Math.max(0, ...[...quotes.values()].map(q => q.fetchedAt || 0)) });
+function netFail(e) {
+  net.fails++;
+  const offline = (typeof navigator !== 'undefined' && navigator.onLine === false) || /reach/i.test(e?.message || '');
+  if (offline || net.fails >= 2) net.state = offline ? 'offline' : 'down';
+}
+function netOk() { net = { state: 'ok', lastOk: Date.now(), fails: 0 }; }
 const listeners = new Set();
 let extraSymbols = () => [];
 let pollBusy = false, lastPoll = 0, catchingUp = false;
@@ -37,7 +51,7 @@ export async function poll(symbols = activeSymbols()) {
     store.update(s => {
       for (const [sym, q] of Object.entries(res.quotes)) {
         if (!q || q.error) continue;
-        quotes.set(sym, { ...q, fetchedAt: now });
+        quotes.set(sym, { ...q, fetchedAt: now, stale: false });
         if (E.openOrders(s, sym).length && q.last > 0 && q.lastTime) {
           const f = E.processTick(s, sym, q.last, q.lastTime * 1000, GAP_MS);
           if (f.gap) needCatchUp = true;
@@ -46,19 +60,21 @@ export async function poll(symbols = activeSymbols()) {
       }
       E.expire(s, now); E.settle(s, now);
     });
+    netOk(); saveQuotes();
     notify({ kind: 'quotes', fills });
     if (needCatchUp) setTimeout(catchUp, 0);
-  } catch (e) { notify({ kind: 'error', error: e }); }
+  } catch (e) { netFail(e); notify({ kind: 'error', error: e }); }
   finally { pollBusy = false; }
 }
 
 /** Make sure we have a fresh price for one symbol (used before placing an order). */
 export async function freshQuote(sym) {
   const q = quotes.get(sym);
-  if (q && Date.now() - q.fetchedAt < 4000) return q;
+  if (q && !q.stale && Date.now() - q.fetchedAt < 4000) return q;
   pollBusy = false;
   await poll([...new Set([sym, ...activeSymbols()])].slice(0, 20));
-  return quotes.get(sym) || null;
+  const fresh = quotes.get(sym);
+  return fresh && !fresh.stale && Date.now() - fresh.fetchedAt < 30000 ? fresh : null; // never trade on an old price
 }
 
 /** Place an order. Fills immediately if it can. */
@@ -154,4 +170,6 @@ export function start(getExtra) {
     else store.update(s => { E.expire(s, Date.now()); E.settle(s, Date.now()); });
   }, REFRESH_MS);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) catchUp().then(() => poll()); });
+  window.addEventListener('online', () => { catchUp().then(() => poll()); });
+  window.addEventListener('offline', () => { net.state = 'offline'; notify({ kind: 'net' }); });
 }

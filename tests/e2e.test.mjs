@@ -317,7 +317,7 @@ test('post-trade recap pops up when a position closes, and reopens from History'
   await page.context().close();
 });
 
-for (const device of ['iPhone SE', 'iPhone 14', 'iPhone 14 Pro Max']) {
+for (const device of ['iPhone SE', 'iPhone 14', 'iPhone 15', 'iPhone 14 Pro Max']) {
   test(`layout fits ${device}: no horizontal scroll, nav and buttons visible`, async () => {
     const page = await newPage(device, { time: '2026-11-24T15:00:00Z' });
     await relayMock(page);
@@ -659,4 +659,87 @@ test('with every indicator on, nothing overlaps (screen scrolls instead)', async
     await page.click('[data-tf="1Y"]'); // clickable, not covered
     await page.context().close();
   }
+});
+
+// ---- Phase 6: polish ---------------------------------------------------------
+test('text size: Extra large still fits the iPhone 15 and SE without sideways scrolling', async () => {
+  for (const device of ['iPhone 15', 'iPhone SE']) {
+    const state = JSON.parse(ACCOUNT(RELAY, { settings: { relayUrl: RELAY, symbol: 'AAPL', range: '1D', intervals: {}, textSize: '1.3' } }));
+    const page = await newPage(device, { time: OPEN, state });
+    await relayMock(page);
+    await page.goto(base);
+    await page.waitForSelector('#chart canvas');
+    assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--ts').trim()), '1.3');
+    for (const tab of ['home', 'search', 'portfolio', 'menu']) {
+      await page.click(`[data-tab="${tab}"]`);
+      const m = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth, nav: document.querySelector('nav').scrollWidth <= document.querySelector('nav').clientWidth + 1 }));
+      assert.ok(m.sw <= m.cw, `${device} ${tab}: no sideways scroll`);
+      assert.ok(m.nav, `${device} ${tab}: nav labels fit`);
+    }
+    await page.click('[data-tab="menu"]');
+    await page.click('[data-act="text"]');
+    await page.click('[data-ts="1"]');
+    assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--ts').trim()), '1');
+    assert.match(await page.textContent('main'), /Text size\s*Standard/);
+    await page.context().close();
+  }
+});
+
+test('offline: banner, last known prices, chart from the phone, no trading on old prices', async () => {
+  const page = await newPage('iPhone 15', { time: OPEN, symbol: 'AAPL' });
+  await relayMock(page, { price: () => 123.45 });
+  await page.goto(base);
+  await page.waitForFunction(() => document.querySelector('#pxMain')?.textContent === '123.45');
+  await page.waitForSelector('#chart canvas');
+  assert.equal(await page.isHidden('#netbar'), true);
+  // connection drops
+  await page.context().setOffline(true);
+  await page.waitForSelector('#netbar >> text=OFFLINE');
+  // reopen while offline: prices and chart come from the phone
+  await page.unroute(`${RELAY}/**`);
+  await page.route(`${RELAY}/**`, r => r.abort('internetdisconnected'));
+  await page.context().setOffline(false);
+  await page.reload();
+  await page.waitForFunction(() => document.querySelector('#pxMain')?.textContent === '123.45');
+  assert.equal(await page.locator('.chart-msg').count(), 0, 'cached chart shown');
+  await page.clock.runFor(11_000);
+  await page.waitForSelector('#netbar:not([hidden])');
+  await page.click('#buy');
+  await page.fill('#tQty', '1');
+  await page.click('#tReview');
+  await page.click('#rPlace');
+  await page.waitForSelector('.toast >> text=Couldn’t get a current price');
+  assert.equal((await page.evaluate(() => JSON.parse(localStorage.getItem('lpt.v1')).trading.fills.length)), 0, 'no order on a stale price');
+  await page.context().close();
+});
+
+test('switching tabs shows the chart instantly (no reload spinner)', async () => {
+  const calls = [];
+  const page = await newPage('iPhone 15', { time: OPEN, symbol: 'AAPL' });
+  await relayMock(page, { calls });
+  await page.goto(base);
+  await page.waitForSelector('#chart canvas');
+  const before = calls.filter(c => c.startsWith('/chart')).length;
+  await page.click('[data-tab="portfolio"]');
+  await page.click('[data-tab="home"]');
+  assert.equal(await page.locator('.chart-msg').count(), 0);
+  assert.equal(calls.filter(c => c.startsWith('/chart')).length, before, 'served from cache');
+  await page.context().close();
+});
+
+test('pull down to refresh prices', async () => {
+  let p = 100;
+  const page = await newPage('iPhone 15', { time: OPEN, symbol: 'AAPL' });
+  await relayMock(page, { price: () => p });
+  await page.goto(base);
+  await page.waitForFunction(() => document.querySelector('#pxMain')?.textContent === '100.00');
+  p = 104.2;
+  await page.evaluate(() => {
+    const el = document.querySelector('#main'), at = (y) => [new Touch({ identifier: 1, target: el, clientX: 200, clientY: y })];
+    el.dispatchEvent(new TouchEvent('touchstart', { touches: at(150), bubbles: true }));
+    el.dispatchEvent(new TouchEvent('touchmove', { touches: at(330), bubbles: true }));
+    el.dispatchEvent(new TouchEvent('touchend', { touches: [], bubbles: true }));
+  });
+  await page.waitForFunction(() => document.querySelector('#pxMain')?.textContent === '104.20');
+  await page.context().close();
 });
