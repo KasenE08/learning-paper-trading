@@ -73,3 +73,13 @@ test('dividends paid are kept and counted', () => {
   E.settle(s, T('2026-12-10T15:00:00Z'));
   assert.equal(A.dividendsPaid(s), 5);
 });
+
+test('S&P total return reinvests dividends on the ex-date', () => {
+  const t = iso => Date.parse(iso) / 1000;
+  const bars = [[t('2026-12-17T14:30:00Z'), 100], [t('2026-12-18T14:30:00Z'), 99], [t('2026-12-19T14:30:00Z'), 100]];
+  const idx = A.totalReturnIndex(bars, [{ date: t('2026-12-18T14:30:00Z'), amount: 2 }]);
+  assert.equal(idx[0][1], 100);
+  assert.ok(Math.abs(idx[1][1] - 101) < 1e-9, 'price fell by the dividend, total return rose by 1%');
+  assert.ok(Math.abs(idx[2][1] - 101 * 100 / 99) < 1e-9);
+  assert.equal(idx[2][2], 100, 'raw close kept');
+});

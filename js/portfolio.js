@@ -102,7 +102,7 @@ function performance(el) {
     <div class="tf pr">${ranges.map(r => `<button data-range="${r}" class="${r === view.range ? 'on' : ''}">${r}</button>`).join('')}</div>
     <div class="vs" id="pVs"><div class="empty"><span class="spin"></span></div></div>
     <div class="cmp" id="pChart"></div>
-    <div class="legend2"><span><i class="ln cy"></i>You</span><span><i class="ln wh"></i>S&amp;P 500 (SPY)</span><span class="d">price return</span></div>
+    <div class="legend2"><span><i class="ln cy"></i>You</span><span><i class="ln wh"></i>S&amp;P 500 (SPY)</span><span class="d">incl. dividends</span></div>
     <div class="sect">YOUR TRADES</div>
     <div class="card">
       <div class="kv"><span class="d">Closed positions</span><span class="w">${stats.closed}</span></div>
@@ -130,7 +130,9 @@ async function loadPerf() {
   perf.loading = (async () => {
     const from = st.account.createdAt / 1000 - 14 * 86400, to = Date.now() / 1000;
     const get = async sym => { const d = await api.chartPeriod(sym, '1d', from, to); return d.bars.map(b => [b[0], b[4]]); };
-    const calendar = await get('SPY');
+    // S&P 500 as total return: SPY closes with its dividends reinvested (fair vs your account, which counts dividends)
+    const spy = await api.chartPeriod('SPY', '1d', from, to, { events: true });
+    const calendar = A.totalReturnIndex(spy.bars.map(b => [b[0], b[4]]), spy.dividends || []);
     const closes = {};
     for (let i = 0; i < syms.length; i += 4) {
       const part = syms.slice(i, i + 4);
@@ -149,7 +151,7 @@ function drawPerf(el) {
   const series = (perf.series || []).map(p => ({ ...p }));
   // today's point uses live numbers
   const today = ymdOf(Date.now()), last = series.at(-1), spyQ = trader.getQuote('SPY');
-  if (last && last.day === today) { last.value = trader.summary().total; if (spyQ) last.spy = spyQ.price; }
+  if (last && last.day === today) { last.value = trader.summary().total; if (spyQ && last.spyPx) last.spy = last.spy * spyQ.price / last.spyPx; }
   if (!series.length) { vs.innerHTML = '<div class="empty">Your performance line starts after your first market day. Check back after the next close.</div>'; return; }
   const c = A.compare(series, A.rangeStart(view.range, Date.now(), st.account.createdAt), st.account.startingBalance);
   view.chart.setData(c.you, c.spy);

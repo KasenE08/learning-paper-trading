@@ -6,4 +6,4 @@ export const CHART_REFRESH_MS = 60000;   // full chart re-sync
 export const DEFAULT_SYMBOL = 'SPY';
 export const MIN_BALANCE = 0.01;               // any positive amount
 export const MAX_BALANCE = 1_000_000_000_000;  // technical cap: larger values can't be tracked to the cent
-export const APP_VERSION = '0.4.0';
+export const APP_VERSION = '0.4.1';

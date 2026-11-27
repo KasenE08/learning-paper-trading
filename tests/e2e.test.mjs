@@ -442,8 +442,8 @@ function tradedState() {
 const daily = (days, closes) => days.map((day, i) => [Date.parse(day + 'T14:30:00Z') / 1000, closes[i], closes[i], closes[i], closes[i], 0]);
 const DAYS = ['2026-11-13', '2026-11-16', '2026-11-17', '2026-11-18', '2026-11-19', '2026-11-20', '2026-11-23', '2026-11-24'];
 const perfChart = u => {
-  if (!u.searchParams.get('period1') || u.searchParams.get('events')) return null;
   const sym = u.searchParams.get('symbol');
+  if (!u.searchParams.get('period1') || (u.searchParams.get('events') && sym !== 'SPY')) return null;
   if (sym === 'SPY') return { meta: {}, bars: daily(DAYS, [500, 500, 505, 505, 510, 510, 515, 510]), dividends: [], splits: [] };
   if (sym === 'MSFT') return { meta: {}, bars: daily(DAYS, [98, 99, 99, 100, 104, 106, 108, 110]), dividends: [], splits: [] };
   return { meta: {}, bars: daily(DAYS, [99, 100, 110, 108, 107, 106, 105, 104]), dividends: [], splits: [] };

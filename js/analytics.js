@@ -73,7 +73,7 @@ export function equitySeries(s, closes, calendar, now = Date.now()) {
   let cash = s.account.startingBalance, fi = 0, di = 0;
   const qty = {};
   let spyBase = null;
-  for (const [t, spyClose] of [...calendar].sort((a, b) => a[0] - b[0])) {
+  for (const [t, spyClose, spyPx = spyClose] of [...calendar].sort((a, b) => a[0] - b[0])) {
     const day = ymdOf(t * 1000);
     if (day < startDay) { spyBase = spyClose; continue; }
     const [y, m, d] = day.split('-').map(Number);
@@ -94,7 +94,27 @@ export function equitySeries(s, closes, calendar, now = Date.now()) {
       holdings += q * (lastClose[sym] ?? 0);
     }
     if (spyBase == null) spyBase = spyClose; // account opened before this data starts
-    out.push({ day, value: r2(cash + holdings), spy: spyClose, spyBase });
+    out.push({ day, value: r2(cash + holdings), spy: spyClose, spyPx, spyBase });
+  }
+  return out;
+}
+
+/**
+ * Total-return index for a fund: daily closes with each dividend reinvested on its ex-date.
+ * bars: [[unixSec, close], ...]; dividends: [{date (unixSec, ex-date), amount}]
+ * Returns [[unixSec, totalReturnValue, close], ...] (value starts equal to the first close).
+ */
+export function totalReturnIndex(bars, dividends = []) {
+  const sorted = [...bars].sort((a, b) => a[0] - b[0]);
+  const divByDay = new Map();
+  for (const d of dividends) { const k = ymdOf(d.date * 1000); divByDay.set(k, (divByDay.get(k) || 0) + d.amount); }
+  const out = [];
+  let tr = null, prevClose = null;
+  for (const [t, close] of sorted) {
+    if (tr == null) tr = close;
+    else tr *= (close + (divByDay.get(ymdOf(t * 1000)) || 0)) / prevClose;
+    out.push([t, tr, close]);
+    prevClose = close;
   }
   return out;
 }
