@@ -1,9 +1,9 @@
 // Service worker: app shell works offline; market data always goes to the network.
-const VERSION = 'lpt-v0.3.1';
+const VERSION = 'lpt-v0.4.0';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/app.js', 'js/api.js', 'js/chart.js', 'js/config.js', 'js/format.js', 'js/market.js', 'js/store.js',
-  'js/engine.js', 'js/trader.js', 'js/ticket.js', 'js/ui.js',
+  'js/engine.js', 'js/trader.js', 'js/ticket.js', 'js/ui.js', 'js/analytics.js', 'js/portfolio.js', 'js/backup.js',
   'vendor/lightweight-charts.standalone.production.js',
   'fonts/jetbrains-mono-latin-400-normal.woff2', 'fonts/jetbrains-mono-latin-500-normal.woff2',
   'fonts/jetbrains-mono-latin-600-normal.woff2', 'fonts/jetbrains-mono-latin-700-normal.woff2',

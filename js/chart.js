@@ -17,9 +17,9 @@ const C = { up: '#00ff9c', down: '#ff3b5c', upExt: 'rgba(0,255,156,.38)', downEx
 // Lightweight Charts shows times as UTC, so shift each bar to New York wall-clock.
 const shiftTs = ts => ts + etOffsetMinutes(new Date(ts * 1000)) * 60;
 
-export function createCandleChart(el, { onHover } = {}) {
+function baseChart(el, extra = {}) {
   const LWC = window.LightweightCharts;
-  const chart = LWC.createChart(el, {
+  return LWC.createChart(el, {
     autoSize: true,
     layout: { attributionLogo: false, background: { type: 'solid', color: 'transparent' }, textColor: C.text, fontFamily: 'JetBrains Mono, ui-monospace, monospace', fontSize: 10 },
     grid: { vertLines: { visible: false }, horzLines: { color: C.grid, style: LWC.LineStyle.Dashed } },
@@ -31,13 +31,26 @@ export function createCandleChart(el, { onHover } = {}) {
       horzLine: { color: C.cross, labelBackgroundColor: '#0b2a33' },
     },
     handleScale: { axisPressedMouseMove: false },
+    ...extra,
   });
+}
+
+/** Stock chart: candlesticks (default) or a close-price line. */
+export function createCandleChart(el, { onHover, style = 'candles' } = {}) {
+  const LWC = window.LightweightCharts;
+  const chart = baseChart(el);
   const series = chart.addCandlestickSeries({
     upColor: C.up, downColor: C.down, borderUpColor: C.up, borderDownColor: C.down, wickUpColor: C.up, wickDownColor: C.down,
     priceLineColor: 'rgba(232,241,255,.5)', priceLineStyle: LWC.LineStyle.Dotted,
   });
+  const line = chart.addLineSeries({ lineWidth: 2, visible: false, priceLineColor: 'rgba(232,241,255,.5)', priceLineStyle: LWC.LineStyle.Dotted, crosshairMarkerRadius: 4 });
 
-  let bars = [], interval = '1d', intraday = false;
+  let bars = [], interval = '1d', intraday = false, mode = style, baseline = null;
+  // Line color follows the meaning of green/red: up or down vs the close before the range
+  // (for 1D that's yesterday's close, matching the day change shown above the chart).
+  const recolor = () => { if (bars.length) line.applyOptions({ color: bars.at(-1)[4] >= (baseline ?? bars[0][1]) ? C.up : C.down }); };
+  const applyMode = () => { series.applyOptions({ visible: mode === 'candles' }); line.applyOptions({ visible: mode === 'line' }); };
+  applyMode();
 
   const toPoint = ([t, o, h, l, c]) => {
     const ext = intraday && !isRegularHours(t);
@@ -48,18 +61,23 @@ export function createCandleChart(el, { onHover } = {}) {
 
   chart.subscribeCrosshairMove(p => {
     if (!onHover) return;
-    const d = p && p.time != null ? p.seriesData.get(series) : null;
+    if (!p || p.time == null) return onHover(null);
+    if (mode === 'line') { const d = p.seriesData.get(line); return onHover(d ? { close: d.value } : null); }
+    const d = p.seriesData.get(series);
     onHover(d ? { open: d.open, high: d.high, low: d.low, close: d.close } : null);
   });
 
   return {
-    setData(newBars, iv) {
-      interval = iv; intraday = iv in INTERVAL_SEC;
+    setData(newBars, iv, base = null) {
+      interval = iv; intraday = iv in INTERVAL_SEC; baseline = base > 0 ? base : null;
       bars = intraday ? clampOutliers(newBars) : newBars.slice();
       chart.applyOptions({ timeScale: { timeVisible: intraday, secondsVisible: false } });
       series.setData(bars.map(toPoint));
+      line.setData(bars.map(b => ({ time: shiftTs(b[0]), value: b[4] })));
+      recolor();
       chart.timeScale().fitContent();
     },
+    setStyle(s) { mode = s; applyMode(); },
     /** Merge a live quote into the last candle (or start a new one). */
     live(q) {
       if (!bars.length || !q || q.error) return;
@@ -83,10 +101,28 @@ export function createCandleChart(el, { onHover } = {}) {
       }
       bars[bars.length - 1] = bar;
       series.update(toPoint(bar));
+      line.update({ time: shiftTs(bar[0]), value: bar[4] });
+      recolor();
     },
     lastBar: () => bars[bars.length - 1] || null,
     count: () => bars.length,
     destroy() { chart.remove(); },
+  };
+}
+
+/**
+ * Performance chart: two lines of % return — your account (cyan) and the S&P 500 (white).
+ * Data: [{ time: 'YYYY-MM-DD', value: percent }].
+ */
+export function createCompareChart(el) {
+  const chart = baseChart(el, { localization: { priceFormatter: v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%' } });
+  const LWC = window.LightweightCharts;
+  const you = chart.addLineSeries({ color: '#3df2ff', lineWidth: 2, priceLineVisible: false, lastValueVisible: true, crosshairMarkerRadius: 4 });
+  const spy = chart.addLineSeries({ color: 'rgba(232,241,255,.75)', lineWidth: 2, lineStyle: LWC.LineStyle.Solid, priceLineVisible: false, lastValueVisible: true, crosshairMarkerRadius: 3 });
+  const zero = you.createPriceLine({ price: 0, color: 'rgba(125,146,179,.5)', lineWidth: 1, lineStyle: LWC.LineStyle.Dashed, axisLabelVisible: false });
+  return {
+    setData(a, b) { you.setData(a); spy.setData(b); chart.timeScale().fitContent(); },
+    destroy() { you.removePriceLine(zero); chart.remove(); },
   };
 }
 

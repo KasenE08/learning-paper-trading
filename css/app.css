@@ -183,3 +183,24 @@ nav button.on { color: var(--cyan); text-shadow: var(--glow-c); }
 .item.act { padding: 9px 2px; font-size: 12px; }
 .item .mid div.up, .item .mid div.down { font-size: 12px; }
 [hidden] { display: none !important; }
+
+/* ---- Phase 4: portfolio tabs, performance ---- */
+.ptabs { display: flex; margin: 0 16px 8px; }
+.ptabs button { flex: 1; padding: 9px 4px; font-size: 11px; }
+.hs { display: flex; margin: 4px 16px 0; }
+.hs button { flex: 1; }
+.tf.pr { margin: 6px 16px 0; justify-content: space-between; }
+.vs { margin: 6px 16px 0; min-height: 84px; }
+.vs-row { display: flex; justify-content: space-between; align-items: flex-end; }
+.vs-row .r { text-align: right; }
+.vbig { font-size: 26px; font-weight: 600; margin-top: 2px; }
+.vs-diff { font-size: 12px; margin-top: 6px; }
+.cmp { height: 230px; margin: 6px 6px 0; position: relative; }
+.legend2 { display: flex; gap: 14px; font-size: 10px; letter-spacing: .08em; color: var(--white); margin: 4px 16px 0; align-items: center; }
+.legend2 .d { margin-left: auto; }
+.ln { display: inline-block; width: 14px; height: 2px; margin-right: 6px; vertical-align: 3px; }
+.ln.cy { background: var(--cyan); box-shadow: 0 0 6px var(--cyan); }
+.ln.wh { background: var(--white); }
+.btn.wide { width: 100%; }
+.tf .iv.st { margin-left: auto; }
+.tf .iv.st + .iv { margin-left: 4px; }

@@ -38,3 +38,8 @@ export function addRecent(item) {
     s.recentSearches = [item, ...s.recentSearches.filter(r => r.symbol !== item.symbol)].slice(0, 8);
   });
 }
+
+/** Replace everything with an imported state (validated by the caller). */
+export function replace(next) { state = migrate({ ...defaults(), ...next, settings: { ...defaults().settings, ...(next.settings || {}) } }); persist(); }
+/** Erase all saved data on this device. */
+export function wipe() { try { localStorage.removeItem(KEY); } catch { /* ignore */ } state = defaults(); }

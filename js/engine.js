@@ -46,13 +46,14 @@ export function sellFees(qty, proceeds) {
 
 // ---------------------------------------------------------------- state
 export function freshTrading() {
-  return { positions: {}, orders: [], fills: [], activity: [], violations: [], restrictedUntil: null, divs: { done: {}, pending: [] }, splits: {}, lastSync: {} };
+  return { positions: {}, orders: [], fills: [], activity: [], violations: [], restrictedUntil: null, divs: { done: {}, pending: [], paid: [] }, splits: {}, lastSync: {} };
 }
 /** Upgrade older saved state (Phase 2 accounts had only `cash`). */
 export function migrate(s) {
   const a = s.account;
   if (a && a.settled == null) { a.settled = a.cash ?? a.startingBalance; a.unsettled = []; delete a.cash; }
   s.trading = { ...freshTrading(), ...(s.trading || {}) };
+  s.trading.divs = { done: {}, pending: [], paid: [], ...s.trading.divs };
   return s;
 }
 
@@ -108,6 +109,7 @@ export function settle(s, now) {
   for (const d of s.trading.divs.pending) {
     if (d.payDate <= today) {
       a.settled = r2(a.settled + d.amount);
+      (s.trading.divs.paid ||= []).push({ ...d, paidAt: now });
       log(s, { kind: 'dividend', symbol: d.symbol, amount: d.amount, perShare: d.perShare, qty: d.qty, exDate: d.exDate, time: now });
       ev.push({ kind: 'dividend', ...d });
     } else pend.push(d);
@@ -542,14 +544,17 @@ export function applySplits(s, sym, splits, now) {
 
 /** Shares held at the start of an ET day, from the fill history (split-adjusted to today). */
 export function sharesHeldAt(s, sym, dayStart) {
-  const splits = s.trading.splits[sym] || [];
   let q = 0;
   for (const f of s.trading.fills) {
     if (f.symbol !== sym || f.time >= dayStart) continue;
-    const factor = splits.filter(sp => etDayStart(sp.date) > f.time).reduce((m, sp) => m * sp.ratio, 1);
-    q += (f.side === 'buy' ? 1 : -1) * f.qty * factor;
+    q += (f.side === 'buy' ? 1 : -1) * f.qty * splitFactorSince(s, sym, f.time);
   }
   return Math.max(0, q3(q));
+}
+
+/** Product of all splits applied to `sym` after time t (to restate old share counts in today's shares). */
+export function splitFactorSince(s, sym, t) {
+  return (s.trading.splits[sym] || []).filter(sp => etDayStart(sp.date) > t).reduce((m, sp) => m * sp.ratio, 1);
 }
 
 /** Schedule dividend payments [{date (sec, ex-date), amount}] for shares held before each ex-date. */
