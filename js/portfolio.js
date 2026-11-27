@@ -8,6 +8,8 @@ import * as trader from './trader.js';
 import { createCompareChart } from './chart.js';
 import { ymdOf } from './market.js';
 import { $, BR, sheet, closeSheet, toast } from './ui.js';
+import * as learn from './learn.js';
+import { showRecap } from './recap.js';
 
 const view = { tab: 'overview', range: 'ALL', hist: 'trades', chart: null };
 let ctx = { go: () => {} };
@@ -27,7 +29,9 @@ export function renderPortfolio(main, context) {
   ({ overview, performance, history })[view.tab](body);
   main.onclick = e => {
     const t = e.target.closest('[data-ptab]');
-    if (t) { view.tab = t.dataset.ptab; return renderPortfolio(main); }
+    if (t) { view.tab = t.dataset.ptab; if (view.tab === 'performance') learn.emit('performance'); return renderPortfolio(main); }
+    const rc = e.target.closest('[data-trip]');
+    if (rc) { const trip = A.roundTrips(store.get()).find(x => x.fills[0] === rc.dataset.trip); if (trip) showRecap(trip); return; }
     const r = e.target.closest('[data-range]');
     if (r) { view.range = r.dataset.range; return renderPortfolio(main); }
     const h = e.target.closest('[data-hist]');
@@ -173,9 +177,9 @@ function history(el) {
   if (view.hist === 'trades') {
     const trips = A.roundTrips(st);
     list = trips.length ? trips.map(t => `
-      <button class="item" data-sym="${fmt.esc(t.symbol)}">
+      <button class="item" data-trip="${fmt.esc(t.fills[0])}">
         <span class="sym w">${fmt.esc(t.symbol)}</span>
-        <span class="mid"><div>${new Date(t.opened).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} → ${new Date(t.closed).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div><small>held ${holdText(t.holdDays)} · cost ${fmt.money(t.bought)}</small></span>
+        <span class="mid"><div>${new Date(t.opened).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} → ${new Date(t.closed).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div><small>held ${holdText(t.holdDays)} · tap for recap</small></span>
         <span class="rt"><div class="${fmt.tone(t.realized)}">${fmt.signedMoney(t.realized)}</div><small class="${fmt.tone(t.realized)}">${fmt.pct(t.returnPct)}</small></span>
       </button>`).join('') : '<div class="empty">No closed positions yet. A position closes when you sell all of its shares.</div>';
   } else if (view.hist === 'fills') {

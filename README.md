@@ -15,6 +15,7 @@ A free, phone-only stock paper-trading PWA with a built-in learning layer. Prete
 | `js/engine.js` | Trading rules: orders, fills, T+1 settlement, good-faith violations, splits, dividends |
 | `js/trader.js`, `js/ticket.js` | Live order processing, catch-up on reopen, order ticket |
 | `js/analytics.js`, `js/portfolio.js`, `js/backup.js` | P&L, win rate, vs S&P 500, history; export/import/reset |
+| `js/learn.js`, `js/indicators.js`, `js/recap.js` | Hints with fade-out, indicator math + explainers, post-trade recaps |
 | `js/chart.js` | Candlestick chart (TradingView Lightweight Charts, vendored in `vendor/`) |
 | `worker/worker.js` | Cloudflare Worker relay (`/search`, `/chart`, `/quote`) |
 | `sw.js`, `manifest.webmanifest`, `icons/` | PWA shell |
@@ -33,5 +34,5 @@ LIVE_RELAY=http://localhost:8787 npm test  # adds a live-data test
 - [x] Phase 2: PWA shell, relay, search, live quotes, candlestick chart, starting balance
 - [x] Phase 3: trading engine
 - [x] Phase 4: portfolio
-- [ ] Phase 5: learning layer
+- [x] Phase 5: learning layer
 - [ ] Phase 6: polish + full mobile testing

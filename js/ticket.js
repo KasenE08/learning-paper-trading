@@ -4,6 +4,7 @@ import * as store from './store.js';
 import * as trader from './trader.js';
 import * as fmt from './format.js';
 import { $, sheet, closeSheet, toast } from './ui.js';
+import * as learn from './learn.js';
 
 const DESC = {
   market: { buy: 'Buys right away at the best available price (during market hours).', sell: 'Sells right away at the best available price (during market hours).' },
@@ -54,17 +55,17 @@ export async function openTicket({ symbol, name, side = 'buy' }) {
   el.addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
     if (b.dataset.side) { t.side = b.dataset.side; if (!DESC[t.type][t.side]) t.type = 'market'; }
-    else if (b.dataset.type) { t.type = b.dataset.type; if (t.type !== 'market') t.mode = 'shares'; if ((t.type === 'limit' || (t.type === 'bracket' && t.entryType === 'limit')) && !t.limit) { const q = trader.getQuote(symbol); if (q) { t.limit = String(E.roundPrice(q.last ?? q.price)); $('#tLimit', el).value = t.limit; } } }
-    else if (b.dataset.mode) t.mode = b.dataset.mode;
+    else if (b.dataset.type) { t.type = b.dataset.type; learn.emit('type:' + t.type); if (t.type !== 'market') t.mode = 'shares'; if ((t.type === 'limit' || (t.type === 'bracket' && t.entryType === 'limit')) && !t.limit) { const q = trader.getQuote(symbol); if (q) { t.limit = String(E.roundPrice(q.last ?? q.price)); $('#tLimit', el).value = t.limit; } } }
+    else if (b.dataset.mode) { t.mode = b.dataset.mode; if (t.mode === 'dollars') learn.emit('mode:dollars'); }
     else if (b.dataset.entry) { t.entryType = b.dataset.entry; }
     else if (b.dataset.tk) t.trailKind = b.dataset.tk;
-    else if (b.dataset.tif) t.tif = b.dataset.tif;
+    else if (b.dataset.tif) { t.tif = b.dataset.tif; if (t.tif === 'gtc') learn.emit('gtc'); }
     else if (b.id === 'tMax') { t.mode = 'shares'; t.qty = String(E.availableShares(store.get(), symbol)); $('#tQty', el).value = t.qty; }
     else if (b.id === 'tReview') { touched = true; return review(); }
     else return;
     update();
   });
-  $('#tExt', el).addEventListener('change', e => { t.ext = e.target.checked; if (t.ext) t.tif = 'day'; update(); });
+  $('#tExt', el).addEventListener('change', e => { t.ext = e.target.checked; if (t.ext) { t.tif = 'day'; learn.emit('ext'); } update(); });
 
   function input() {
     const q = trader.getQuote(symbol);
@@ -123,6 +124,7 @@ export async function openTicket({ symbol, name, side = 'buy' }) {
     const r = pv();
     if (!r.ok) return;
     const o = r.normalized, est = r.estimate;
+    if (o.type === 'market' && r.warnings.some(w => w.code === 'queued')) learn.emit('warn:queued:market');
     const lines = [];
     if (o.type === 'bracket') lines.push(`Buy ${o.qty} ${symbol} ${o.entryType === 'limit' ? `with a limit of $${o.limit}` : 'at market'}`, `Then sell at $${o.takeProfit} (take-profit) or $${o.stopLoss} (stop-loss), whichever comes first. The exits stay open up to 180 days.`);
     else if (o.type === 'oco') lines.push(`Sell ${o.qty} ${symbol} at $${o.takeProfit} (take-profit) or $${o.stopLoss} (stop-loss), whichever comes first.`);
@@ -145,7 +147,7 @@ export async function openTicket({ symbol, name, side = 'buy' }) {
           const q = await trader.freshQuote(symbol);
           if (!q) { toast('Couldn’t get a current price. Check your connection and try again.'); return openTicketWith(t); }
           const res = trader.place(input(), q);
-          if (!res.ok) { toast(res.errors[0] || 'Order rejected.'); return openTicketWith(t); }
+          if (!res.ok) { learn.emit('rejected'); toast(res.errors[0] || 'Order rejected.'); return openTicketWith(t); }
           closeSheet();
           const f = res.fills?.[0];
           toast(f ? `Filled: ${f.side === 'buy' ? 'bought' : 'sold'} ${+f.qty.toFixed(3)} ${symbol} at $${fmt.price(f.price)}.` : `Order placed: ${E.describe(res.orders[0])}.`, 5000);
@@ -157,6 +159,7 @@ export async function openTicket({ symbol, name, side = 'buy' }) {
   function openTicketWith(state) { closeSheet(); openTicket({ symbol, name, side: state.side }).then(api => api.restore(state)); }
 
   update();
+  learn.emit('ticket');
   trader.freshQuote(symbol).then(update);
   return {
     restore(state) {

@@ -221,16 +221,99 @@ test('menu: relay save & test, about page with disclaimer + credits', async () =
   await page.context().close();
 });
 
-test('tips can be dismissed and stay dismissed', async () => {
-  const page = await newPage('iPhone 14', { time: '2026-11-24T15:00:00Z' });
+test('hints: one at a time, calm 2-minute pacing, dismissals persist', async () => {
+  const page = await newPage('iPhone 14', { time: '2026-11-24T15:30:00Z' }); // 10:30 ET, mid-session
   await relayMock(page);
   await page.goto(base);
+  await page.waitForSelector('.tip');
+  assert.equal(await page.locator('.tip').count(), 1);
   const first = await page.textContent('.tip');
   await page.click('.tip .x');
+  assert.equal(await page.locator('.tip').count(), 0, 'nothing new right away');
+  await page.clock.runFor(125_000);
+  await page.waitForSelector('.tip');
   const second = await page.textContent('.tip');
   assert.notEqual(first, second);
-  await page.reload(); await page.waitForSelector('.tip');
-  assert.equal(await page.textContent('.tip'), second);
+  await page.reload(); await page.waitForSelector('#chart');
+  assert.equal(await page.textContent('.tip'), second, 'the current hint survives a reload');
+  await page.context().close();
+});
+
+test('mistake hint: trying to sell a stock you don\'t own', async () => {
+  const page = await newPage('iPhone 14', { time: OPEN, symbol: 'AAPL' });
+  await relayMock(page);
+  await page.goto(base);
+  await page.waitForSelector('#chart canvas');
+  await page.click('#sell');
+  assert.match(await page.textContent('.toast'), /don't own any AAPL/);
+  assert.match(await page.textContent('.tip'), /HEADS-UP.*short selling/s);
+  await page.context().close();
+});
+
+test('indicators: off by default, explainer the first time, panes and settings', async () => {
+  const page = await newPage('iPhone 14', { time: OPEN, symbol: 'AAPL' });
+  await relayMock(page);
+  await page.goto(base);
+  await page.waitForSelector('#chart canvas');
+  assert.equal(await page.isHidden('#paneRsi'), true);
+  await page.click('#indBtn');
+  assert.equal(await page.locator('.sheet input[data-ind]:checked').count(), 0, 'all off by default');
+  await page.click('.indrow:has([data-ind="rsi"]) .toggle');
+  await page.waitForSelector('text=RSI (RELATIVE STRENGTH INDEX)');
+  assert.match(await page.textContent('.sheet'), /doesn't predict a turn|can't predict/);
+  await page.click('#exOn');
+  await page.waitForSelector('[data-set="rsi"]:not([hidden])');
+  assert.equal(await page.isVisible('#paneRsi'), true);
+  // second time: no explainer
+  await page.click('.indrow:has([data-ind="rsi"]) .toggle');
+  await page.click('.indrow:has([data-ind="rsi"]) .toggle');
+  assert.equal(await page.locator('#exOn').count(), 0);
+  // settings with validation
+  await page.click('[data-set="rsi"]');
+  await page.fill('#sRsi', '1');
+  await page.click('#sSave');
+  assert.match(await page.textContent('#sErr'), /between 2 and 100/);
+  await page.fill('#sRsi', '21');
+  await page.click('#sSave');
+  await page.click('[data-close]');
+  assert.equal(await page.textContent('#paneRsi .plbl'), 'RSI 21');
+  await page.reload(); await page.waitForSelector('#chart canvas');
+  assert.equal(await page.isVisible('#paneRsi'), true, 'remembered');
+  assert.deepEqual(page.errors, []);
+  await page.context().close();
+});
+
+test('post-trade recap pops up when a position closes, and reopens from History', async () => {
+  const now = Date.parse(OPEN), bought = now - 10 * 864e5;
+  const state = JSON.parse(ACCOUNT(RELAY, { settings: { relayUrl: RELAY, symbol: 'AAPL', range: '1D', intervals: {} } }));
+  state.account = { startingBalance: 10000, settled: 9000, unsettled: [], createdAt: bought - 864e5 };
+  state.trading = { positions: { AAPL: { name: 'Apple Inc.', lots: [{ id: 'l1', qty: 10, price: 100, time: bought, fundSettle: null }] } }, orders: [], activity: [], violations: [], restrictedUntil: null,
+    divs: { done: {}, pending: [], paid: [] }, splits: {}, lastSync: { AAPL: '2026-11-24' },
+    fills: [{ id: 'f1', symbol: 'AAPL', side: 'buy', type: 'market', qty: 10, price: 100, amount: 1000, fees: 0, time: bought }] };
+  const page = await newPage('iPhone 14', { time: OPEN, state });
+  const day0 = Date.parse('2025-10-01T14:30:00Z') / 1000;
+  const bars = Array.from({ length: 300 }, (_, i) => { const c = 80 + i * 0.1; return [day0 + i * 86400, c, c + 1, c - 1, c, 1000 + i]; });
+  await relayMock(page, { price: () => 101.5, chart: u => (u.searchParams.get('period1') && !u.searchParams.get('events') ? { meta: {}, bars, dividends: [], splits: [] } : null) });
+  await page.goto(base);
+  await page.waitForFunction(() => document.querySelector('#pxMain')?.textContent === '101.50');
+  await page.click('#sell');
+  await page.waitForSelector('.ticket');
+  await page.click('#tMax');
+  await page.click('#tReview');
+  await page.click('#rPlace');
+  await page.waitForSelector('.recap >> text=WHEN YOU BOUGHT', { timeout: 15000 });
+  const t = await page.textContent('.recap');
+  assert.match(t, /TRADE RECAP · AAPL/);
+  assert.match(t, /RSI was \d+/);
+  assert.match(t, /WHAT HAPPENED/);
+  assert.match(t, /S&P 500 moved/);
+  assert.match(t, /Not financial advice/);
+  await page.click('.recap [data-close]');
+  await page.click('[data-tab="portfolio"]');
+  await page.click('[data-ptab="history"]');
+  await page.click('[data-trip]');
+  await page.waitForSelector('.recap >> text=WHAT HAPPENED');
+  assert.deepEqual(page.errors, []);
   await page.context().close();
 });
 
@@ -557,4 +640,23 @@ test('reset needs RESET typed, then returns to the starting balance screen', asy
   // reload ran the test's seeding script again; what matters is the wipe happened before it
   assert.ok(raw === null || JSON.parse(raw).trading.fills.length === 0);
   await page.context().close();
+});
+
+test('with every indicator on, nothing overlaps (screen scrolls instead)', async () => {
+  const state = JSON.parse(ACCOUNT(RELAY, { settings: { relayUrl: RELAY, symbol: 'AAPL', range: '1D', intervals: {}, ind: { volume: true, ma: true, rsi: true, macd: true } } }));
+  for (const device of ['iPhone SE', 'iPhone 14']) {
+    const page = await newPage(device, { time: OPEN, state });
+    await relayMock(page);
+    await page.goto(base);
+    await page.waitForSelector('#paneMacd canvas');
+    const r = await page.evaluate(() => {
+      const box = s => document.querySelector(s).getBoundingClientRect();
+      return { chart: box('#chart').height, macdBottom: box('#paneMacd').bottom, tf: box('#tf').top, tfBottom: box('#tf').bottom, buy: box('#buy').top, macdH: box('#paneMacd').height };
+    });
+    assert.ok(r.macdH >= 60, 'MACD pane keeps its height');
+    assert.ok(r.macdBottom <= r.tf + 1, 'panes sit above the timeframe row');
+    assert.ok(r.tfBottom <= r.buy, 'timeframe row above the buttons');
+    await page.click('[data-tf="1Y"]'); // clickable, not covered
+    await page.context().close();
+  }
 });

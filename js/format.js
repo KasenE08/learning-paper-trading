@@ -1,7 +1,7 @@
 const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const money = n => (n == null || isNaN(n) ? '—' : usd.format(n));
 export const signedMoney = n => (n == null || isNaN(n) ? '—' : (n >= 0 ? '+' : '−') + usd.format(Math.abs(n)));
-export const pct = n => (n == null || isNaN(n) ? '—' : (n >= 0 ? '+' : '−') + Math.abs(n).toFixed(2) + '%');
+export const pct = n => (n == null || isNaN(n) ? '—' : Math.abs(n) < 0.005 ? '0.00%' : (n >= 0 ? '+' : '−') + Math.abs(n).toFixed(2) + '%');
 export function price(n) {
   if (n == null || isNaN(n)) return '—';
   return n >= 1 ? n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })

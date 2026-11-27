@@ -9,6 +9,9 @@ import * as trader from './trader.js';
 import { openTicket } from './ticket.js';
 import { renderPortfolio, refreshPortfolio } from './portfolio.js';
 import { exportBackup, importFlow, resetFlow } from './backup.js';
+import * as learn from './learn.js';
+import { afterFills } from './recap.js';
+import { DEFAULTS as IND_DEFAULTS } from './indicators.js';
 import { $, BR, sheet, closeSheet, toast } from './ui.js';
 
 const app = $('#app');
@@ -21,8 +24,9 @@ function boot() {
   renderShell();
   if (started) return;
   started = true;
-  startClock();
+  learn.onChange(() => renderTip()); // listen before the clock can pick the first hint
   trader.onUpdate(onTraderUpdate);
+  startClock();
   trader.start(() => [symbol()]);
 }
 
@@ -34,13 +38,15 @@ function onTraderUpdate(ev) {
     if (ev.kind === 'quotes' && marketState().session !== SESSION.CLOSED && Date.now() - ui.lastChartLoad > CHART_REFRESH_MS) loadChart();
   }
   if (ui.tab === 'portfolio' && !document.querySelector('.scrim')) refreshPortfolio($('#main'));
-  const fills = ev.kind === 'quotes' ? ev.fills : ev.kind === 'catchup' ? ev.events.filter(x => x.kind === 'fill').map(x => x.fill) : [];
+  const fills = ev.kind === 'quotes' ? ev.fills : ev.kind === 'catchup' ? ev.events.filter(x => x.kind === 'fill').map(x => x.fill) : ev.kind === 'order' ? ev.result?.fills || [] : [];
+  if (fills?.length) afterFills(fills, { summary: trader.summary });
+  if (ev.kind === 'catchup' && ev.events.some(x => x.kind === 'dividend')) learn.emit('dividend');
   const splitCancels = ev.kind === 'catchup' ? ev.events.filter(x => x.kind === 'split' && x.canceled?.length) : [];
   if (splitCancels.length) {
     const x = splitCancels[0];
     return toast(`${x.symbol} had a ${x.numerator}-for-${x.denominator} stock split. ${x.canceled.length} open order(s) were canceled; see Portfolio → Activity to re-enter them.`, 7000);
   }
-  if (fills?.length) {
+  if (fills?.length && ev.kind !== 'order') {
     const f = fills[0];
     toast(`${fills.length > 1 ? fills.length + ' orders filled. ' : ''}${f.side === 'buy' ? 'Bought' : 'Sold'} ${+f.qty.toFixed(3)} ${f.symbol} at $${fmt.price(f.price)}${ev.kind === 'catchup' ? ' while the app was closed' : ''}.`, 5000);
   }
@@ -126,9 +132,12 @@ function renderHome(main) {
       <div class="ext" id="pxExt"></div>
       <div class="legend" id="legend"></div>
       <div class="chart" id="chart"></div>
+      <div class="ipane" id="paneRsi" hidden><span class="plbl">RSI</span></div>
+      <div class="ipane" id="paneMacd" hidden><span class="plbl">MACD</span></div>
       <div class="tf" id="tf">
         ${Object.keys(TIMEFRAMES).map(k => `<button data-tf="${k}" class="${k === timeframe() ? 'on' : ''}">${k}</button>`).join('')}
-        <button class="iv st" id="styleBtn" aria-label="Chart style">${chartStyle() === 'line' ? 'LINE' : 'CNDL'}</button>
+        <button class="iv st" id="indBtn" aria-label="Indicators">IND</button>
+        <button class="iv" id="styleBtn" aria-label="Chart style">${chartStyle() === 'line' ? 'LINE' : 'CNDL'}</button>
         <button class="iv" id="ivBtn" aria-label="Candle size">${interval()} ▾</button>
       </div>
     </div>
@@ -144,8 +153,10 @@ function renderHome(main) {
     $('#ivBtn').textContent = interval() + ' ▾';
     loadChart();
   });
+  $('#indBtn').addEventListener('click', openIndicators);
   $('#styleBtn').addEventListener('click', () => {
     const next = chartStyle() === 'line' ? 'candles' : 'line';
+    if (next === 'line') learn.emit('style:line');
     store.update(s => { s.settings.chartStyle = next; });
     $('#styleBtn').textContent = next === 'line' ? 'LINE' : 'CNDL';
     ui.chart?.setStyle(next); showLegend(null);
@@ -165,12 +176,13 @@ function renderHome(main) {
     openTicket({ symbol: symbol(), name: q?.name || ui.meta?.name, side: 'buy' });
   });
   $('#sell').addEventListener('click', () => {
-    if (E.position(store.get(), symbol()).qty <= 0) return toast(`You don't own any ${symbol()}. This is a cash account, so you can only sell shares you own.`);
+    if (E.position(store.get(), symbol()).qty <= 0) return learn.emit('sell:none'), toast(`You don't own any ${symbol()}. This is a cash account, so you can only sell shares you own.`);
     openTicket({ symbol: symbol(), name: trader.getQuote(symbol())?.name || ui.meta?.name, side: 'sell' });
   });
 
   renderTip();
-  ui.chart = createCandleChart($('#chart'), { onHover: showLegend, style: chartStyle() });
+  ui.chart = createCandleChart($('#chart'), { onHover: showLegend, style: chartStyle(), rsiEl: $('#paneRsi'), macdEl: $('#paneMacd') });
+  applyIndicators();
   renderQuote(); renderAccount();
   loadChart();
   trader.freshQuote(symbol());
@@ -227,6 +239,7 @@ function renderQuote() {
   const q = trader.getQuote(symbol()); if (!q || q.error || !$('#pxMain')) return;
   const chg = q.price - q.previousClose, chgPct = q.previousClose ? (chg / q.previousClose) * 100 : 0;
   $('#pxMain').textContent = fmt.price(q.price);
+  if (Math.abs(chgPct) >= 8) learn.emit('bigmove');
   const c = $('#pxChg'); c.className = 'chg ' + fmt.tone(chg); c.textContent = `${fmt.arrow(chg)} ${Math.abs(chg).toFixed(2)} ${fmt.pct(chgPct)}`;
   if (q.name) $('#tkName').textContent = q.name;
   const ext = $('#pxExt');
@@ -239,6 +252,23 @@ function renderQuote() {
 }
 const isPreMarket = q => { const s = marketState(new Date(q.lastTime * 1000)).session; return s === SESSION.PRE; };
 
+// Session-based hints (once per session per day), plus the calm hint pacing tick.
+const sessionSeen = new Set();
+function sessionHints(now, m) {
+  if (ui.tab !== 'home') return;
+  const day = now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  let ev = null;
+  if (m.session === SESSION.PRE) ev = 'session:pre';
+  else if (m.session === SESSION.POST) ev = 'session:post';
+  else if (m.session === SESSION.CLOSED) ev = 'session:closed';
+  else if (m.session === SESSION.REGULAR) {
+    const left = m.next - now, open = m.next - now > (m.early ? 3.5 : 6.5) * 3600e3 - 15 * 60e3;
+    if (left <= 15 * 60e3) ev = 'session:closing'; else if (open) ev = 'session:open';
+  }
+  if (ev && !sessionSeen.has(day + ev)) { sessionSeen.add(day + ev); learn.emit(ev); }
+  learn.tick();
+}
+
 function startClock() {
   const tick = () => {
     const el = $('#status'); if (!el) return;
@@ -247,6 +277,7 @@ function startClock() {
     const when = left < 24 * 3600e3 ? `${m.nextLabel.toUpperCase()} ${fmt.countdown(left)}` : `PRE-MKT ${fmt.etWhen(m.next)}`;
     const name = m.holiday ? `CLOSED · ${m.holiday.toUpperCase()}` : m.label.toUpperCase() + (m.early && open ? ' · EARLY CLOSE' : '');
     el.innerHTML = `<span class="${open ? 'c' : 'closed'}"><span class="dot"></span>${name}</span><span class="d">${when}</span>`;
+    if (now.getSeconds() === 0 || !sessionSeen.size) sessionHints(now, m);
   };
   tick(); setInterval(tick, 1000);
 }
@@ -377,17 +408,86 @@ function renderAbout(main) {
   $('#back').addEventListener('click', () => go('menu'));
 }
 
-// ---------------------------------------------------------------- tips (Phase 5 replaces this with the full hint system)
-const STARTER_TIPS = [
-  { id: 'candles', text: 'Green candle = price closed higher than it opened. Red = lower.' },
-  { id: 'search', text: 'Tap the ticker above the chart to look up any US stock.' },
-  { id: 'touch', text: 'Touch and drag on the chart to read any candle’s open, high, low and close.' },
-];
+// ---------------------------------------------------------------- hints (learning layer)
 function renderTip() {
   const slot = $('#tipSlot'); if (!slot) return;
-  const t = STARTER_TIPS.find(x => !store.get().dismissedTips[x.id]);
-  slot.innerHTML = t ? `<div class="tip"><span class="c">› TIP</span> ${t.text}<button class="x" aria-label="Dismiss tip">✕</button></div>` : '';
-  slot.querySelector('.x')?.addEventListener('click', () => { store.update(s => { s.dismissedTips[t.id] = Date.now(); }); renderTip(); });
+  const h = learn.current();
+  slot.innerHTML = h ? `<div class="tip ${h.kind === 'mistake' ? 'warn' : ''}"><span class="c">${h.kind === 'mistake' ? '⚠ HEADS-UP' : '› TIP'}</span> ${fmt.esc(h.text)}<button class="x" aria-label="Dismiss tip">✕</button></div>` : '';
+  slot.querySelector('.x')?.addEventListener('click', () => learn.dismiss());
+}
+
+// ---------------------------------------------------------------- indicators
+const IND_LIST = [['volume', 'Volume', 'Shares traded per candle'], ['ma', 'Moving averages', 'Average price lines on the chart'], ['rsi', 'RSI', 'Momentum, 0–100, in a pane below'], ['macd', 'MACD', 'Trend momentum, in a pane below']];
+const indSettings = () => ({ volume: false, ma: false, rsi: false, macd: false, maPeriods: IND_DEFAULTS.maPeriods, rsiPeriod: IND_DEFAULTS.rsiPeriod, macdParams: IND_DEFAULTS.macd, ...(store.get().settings.ind || {}) });
+function applyIndicators() {
+  const c = indSettings();
+  const r = $('#paneRsi'), m = $('#paneMacd');
+  if (r) { r.hidden = !c.rsi; r.querySelector('.plbl').textContent = `RSI ${c.rsiPeriod}`; }
+  if (m) { m.hidden = !c.macd; m.querySelector('.plbl').textContent = `MACD ${c.macdParams.join('·')}`; }
+  $('#indBtn')?.classList.toggle('on', c.volume || c.ma || c.rsi || c.macd);
+  ui.chart?.setIndicators(c);
+}
+function setInd(patch) { store.update(s => { s.settings.ind = { ...indSettings(), ...patch }; }); applyIndicators(); }
+
+function openIndicators() {
+  const c = indSettings();
+  sheet(`<h3>INDICATORS</h3>
+    <p class="d small">Indicators summarize past prices. They never say what to buy or sell.</p>
+    ${IND_LIST.map(([k, label, sub]) => `
+      <div class="indrow">
+        <label class="toggle"><input type="checkbox" data-ind="${k}" ${c[k] ? 'checked' : ''}><span></span><div><div class="w">${label}</div><small class="d">${sub}</small></div></label>
+        <button class="gear" data-set="${k}" ${c[k] && k !== 'volume' ? '' : 'hidden'} aria-label="${label} settings">⚙</button>
+      </div>`).join('')}
+    <button class="btn wide" data-close style="margin-top:14px">DONE</button>`, el => {
+    el.addEventListener('change', e => {
+      const k = e.target.dataset.ind; if (!k) return;
+      if (e.target.checked && !learn.isExplained(k)) { e.target.checked = false; return explain(k); }
+      setInd({ [k]: e.target.checked });
+      if (e.target.checked) learn.emit('ind:any');
+      el.querySelector(`[data-set="${k}"]`)?.toggleAttribute('hidden', !e.target.checked || k === 'volume');
+    });
+    el.addEventListener('click', e => { const g = e.target.closest('[data-set]'); if (g) indSettingsSheet(g.dataset.set); });
+  });
+}
+
+function explain(k) {
+  const x = learn.EXPLAIN[k];
+  sheet(`<h3>${fmt.esc(x.title.toUpperCase())}</h3>${x.body.map(p => `<p class="w">${fmt.esc(p)}</p>`).join('')}
+    <p class="d small">Not financial advice. Indicators describe the past; they can't predict prices.</p>
+    <div class="btns"><button class="btn" id="exBack" style="border-color:var(--line-hi)">BACK</button><button class="btn cy" id="exOn">TURN ON</button></div>`, el => {
+    $('#exBack', el).addEventListener('click', openIndicators);
+    $('#exOn', el).addEventListener('click', () => { learn.markExplained(k); setInd({ [k]: true }); learn.emit('ind:any'); openIndicators(); });
+  });
+}
+
+function indSettingsSheet(k) {
+  const c = indSettings();
+  const field = (id, label, val) => `<div class="lbl" style="margin-top:10px">${label}</div><label class="field" style="margin:6px 0 0"><input id="${id}" inputmode="numeric" value="${val}"></label>`;
+  const body = k === 'ma' ? field('sMa', 'Periods (up to 3, comma-separated)', c.maPeriods.join(', '))
+    : k === 'rsi' ? field('sRsi', 'Period', c.rsiPeriod)
+    : field('sF', 'Fast', c.macdParams[0]) + field('sS', 'Slow', c.macdParams[1]) + field('sG', 'Signal', c.macdParams[2]);
+  sheet(`<h3>${k.toUpperCase()} SETTINGS</h3>${body}<div id="sErr" class="msg err" hidden></div>
+    <div class="btns" style="margin-top:14px"><button class="btn" id="sStd" style="border-color:var(--line-hi)">STANDARD</button><button class="btn cy" id="sSave">SAVE</button></div>`, el => {
+    const ok = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+    $('#sStd', el).addEventListener('click', () => { setInd(k === 'ma' ? { maPeriods: IND_DEFAULTS.maPeriods } : k === 'rsi' ? { rsiPeriod: IND_DEFAULTS.rsiPeriod } : { macdParams: IND_DEFAULTS.macd }); openIndicators(); });
+    $('#sSave', el).addEventListener('click', () => {
+      const err = t => { const e = $('#sErr', el); e.hidden = false; e.textContent = '⚠ ' + t; };
+      if (k === 'ma') {
+        const v = $('#sMa', el).value.split(/[,\s]+/).filter(Boolean).map(Number);
+        if (!v.length || v.length > 3 || !v.every(n => ok(n, 2, 400))) return err('Enter 1–3 whole numbers between 2 and 400.');
+        setInd({ maPeriods: v });
+      } else if (k === 'rsi') {
+        const v = Number($('#sRsi', el).value);
+        if (!ok(v, 2, 100)) return err('Enter a whole number between 2 and 100.');
+        setInd({ rsiPeriod: v });
+      } else {
+        const v = ['#sF', '#sS', '#sG'].map(id => Number($(id, el).value));
+        if (!v.every(n => ok(n, 2, 200)) || v[0] >= v[1]) return err('Whole numbers 2–200, with Fast smaller than Slow.');
+        setInd({ macdParams: v });
+      }
+      openIndicators();
+    });
+  });
 }
 
 // ---------------------------------------------------------------- service worker

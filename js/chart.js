@@ -1,5 +1,6 @@
 // Candlestick chart (TradingView Lightweight Charts, vendored).
 import { etOffsetMinutes, isRegularHours, etYmd } from './market.js';
+import * as I from './indicators.js';
 
 // Timeframes: range chips, each with the candle sizes Yahoo serves for it.
 export const TIMEFRAMES = {
@@ -36,7 +37,7 @@ function baseChart(el, extra = {}) {
 }
 
 /** Stock chart: candlesticks (default) or a close-price line. */
-export function createCandleChart(el, { onHover, style = 'candles' } = {}) {
+export function createCandleChart(el, { onHover, style = 'candles', rsiEl = null, macdEl = null } = {}) {
   const LWC = window.LightweightCharts;
   const chart = baseChart(el);
   const series = chart.addCandlestickSeries({
@@ -44,6 +45,28 @@ export function createCandleChart(el, { onHover, style = 'candles' } = {}) {
     priceLineColor: 'rgba(232,241,255,.5)', priceLineStyle: LWC.LineStyle.Dotted,
   });
   const line = chart.addLineSeries({ lineWidth: 2, visible: false, priceLineColor: 'rgba(232,241,255,.5)', priceLineStyle: LWC.LineStyle.Dotted, crosshairMarkerRadius: 4 });
+
+  // ---- indicators (all off until turned on) ----
+  const W = ['rgba(232,241,255,.9)', 'rgba(232,241,255,.55)', 'rgba(125,146,179,.85)']; // neutral whites for MAs
+  const vol = chart.addHistogramSeries({ priceScaleId: 'vol', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false, visible: false });
+  chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+  const mas = W.map(color => chart.addLineSeries({ color, lineWidth: 1, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false, visible: false }));
+  const paneOpts = { timeScale: { visible: false, borderVisible: false }, handleScroll: false, handleScale: false, rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.1, bottom: 0.1 } }, crosshair: { horzLine: { visible: false }, vertLine: { color: C.cross } } };
+  let rsiChart = null, rsiLine = null, macdChart = null, macdHist = null, macdLine = null, macdSig = null;
+  if (rsiEl) {
+    rsiChart = baseChart(rsiEl, paneOpts);
+    rsiLine = rsiChart.addLineSeries({ color: 'rgba(232,241,255,.9)', lineWidth: 1, priceLineVisible: false, autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }) });
+    for (const p of [70, 30]) rsiLine.createPriceLine({ price: p, color: 'rgba(125,146,179,.6)', lineWidth: 1, lineStyle: LWC.LineStyle.Dashed, axisLabelVisible: true });
+  }
+  if (macdEl) {
+    macdChart = baseChart(macdEl, paneOpts);
+    macdHist = macdChart.addHistogramSeries({ priceLineVisible: false, lastValueVisible: false });
+    macdLine = macdChart.addLineSeries({ color: 'rgba(232,241,255,.9)', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+    macdSig = macdChart.addLineSeries({ color: 'rgba(125,146,179,.9)', lineWidth: 1, lineStyle: LWC.LineStyle.Dashed, priceLineVisible: false, lastValueVisible: false });
+  }
+  // keep the panes scrolled/zoomed with the price chart (same bars → same logical indexes)
+  chart.timeScale().subscribeVisibleLogicalRangeChange(r => { if (!r) return; rsiChart?.timeScale().setVisibleLogicalRange(r); macdChart?.timeScale().setVisibleLogicalRange(r); });
+  let ind = { volume: false, ma: false, rsi: false, macd: false, maPeriods: I.DEFAULTS.maPeriods, rsiPeriod: I.DEFAULTS.rsiPeriod, macdParams: I.DEFAULTS.macd };
 
   let bars = [], interval = '1d', intraday = false, mode = style, baseline = null;
   // Line color follows the meaning of green/red: up or down vs the close before the range
@@ -75,9 +98,12 @@ export function createCandleChart(el, { onHover, style = 'candles' } = {}) {
       series.setData(bars.map(toPoint));
       line.setData(bars.map(b => ({ time: shiftTs(b[0]), value: b[4] })));
       recolor();
+      drawIndicators();
       chart.timeScale().fitContent();
     },
     setStyle(s) { mode = s; applyMode(); },
+    /** cfg: { volume, ma, rsi, macd (on/off), maPeriods, rsiPeriod, macdParams:[fast, slow, signal] } */
+    setIndicators(cfg) { ind = { ...ind, ...cfg }; drawIndicators(); const r = chart.timeScale().getVisibleLogicalRange(); if (r) { rsiChart?.timeScale().setVisibleLogicalRange(r); macdChart?.timeScale().setVisibleLogicalRange(r); } },
     /** Merge a live quote into the last candle (or start a new one). */
     live(q) {
       if (!bars.length || !q || q.error) return;
@@ -103,11 +129,30 @@ export function createCandleChart(el, { onHover, style = 'candles' } = {}) {
       series.update(toPoint(bar));
       line.update({ time: shiftTs(bar[0]), value: bar[4] });
       recolor();
+      if (ind.ma || ind.rsi || ind.macd || ind.volume) drawIndicators();
     },
     lastBar: () => bars[bars.length - 1] || null,
     count: () => bars.length,
-    destroy() { chart.remove(); },
+    destroy() { rsiChart?.remove(); macdChart?.remove(); chart.remove(); },
   };
+
+  function drawIndicators() {
+    const t = bars.map(b => shiftTs(b[0])), c = bars.map(b => b[4]);
+    const pts = arr => arr.map((v, i) => (v == null ? { time: t[i] } : { time: t[i], value: v }));
+    vol.applyOptions({ visible: !!ind.volume });
+    if (ind.volume) vol.setData(bars.map(b => ({ time: shiftTs(b[0]), value: b[5] || 0, color: b[4] >= b[1] ? 'rgba(0,255,156,.22)' : 'rgba(255,59,92,.22)' })));
+    mas.forEach((m, k) => {
+      const n = ind.maPeriods[k], on = !!ind.ma && n > 1;
+      m.applyOptions({ visible: on });
+      if (on) m.setData(pts(I.sma(c, n)));
+    });
+    if (rsiLine && ind.rsi) rsiLine.setData(pts(I.rsi(c, ind.rsiPeriod)));
+    if (macdLine && ind.macd) {
+      const m = I.macd(c, ...ind.macdParams);
+      macdLine.setData(pts(m.line)); macdSig.setData(pts(m.signal));
+      macdHist.setData(m.hist.map((v, i) => (v == null ? { time: t[i] } : { time: t[i], value: v, color: v >= 0 ? 'rgba(0,255,156,.5)' : 'rgba(255,59,92,.5)' })));
+    }
+  }
 }
 
 /**
