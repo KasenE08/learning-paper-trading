@@ -4,14 +4,15 @@ import * as I from './indicators.js';
 import { textScale } from './ux.js';
 
 // Timeframes: range chips, each with the candle sizes Yahoo serves for it.
+// prepost: the timeframe can include pre-market/after-hours candles (only when EXT is on).
 export const TIMEFRAMES = {
   '1D': { range: '1d', intervals: ['1m', '2m', '5m', '15m', '30m', '1h'], def: '5m', prepost: true },
   '1W': { range: '5d', intervals: ['5m', '15m', '30m', '1h'], def: '30m', prepost: true },
-  '1M': { range: '1mo', intervals: ['30m', '1h', '1d'], def: '1h', prepost: false },
-  '1Y': { range: '1y', intervals: ['1d', '1wk'], def: '1d', prepost: false },
-  'MAX': { range: 'max', intervals: ['1wk', '1mo'], def: '1mo', prepost: false },
+  '1M': { range: '1mo', intervals: ['30m', '1h', '1d'], def: '1d', prepost: false },
+  '1Y': { range: '1y', intervals: ['1d', '1wk'], def: '1wk', prepost: false },
+  'MAX': { range: 'max', intervals: ['1wk', '1mo', '3mo'], def: '3mo', prepost: false },
 };
-export const INTERVAL_LABEL = { '1m': '1 min', '2m': '2 min', '5m': '5 min', '15m': '15 min', '30m': '30 min', '1h': '1 hour', '1d': '1 day', '1wk': '1 week', '1mo': '1 month' };
+export const INTERVAL_LABEL = { '1m': '1 min', '2m': '2 min', '5m': '5 min', '15m': '15 min', '30m': '30 min', '1h': '1 hour', '1d': '1 day', '1wk': '1 week', '1mo': '1 month', '3mo': '3 months' };
 const INTERVAL_SEC = { '1m': 60, '2m': 120, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600 };
 
 const C = { up: '#00ff9c', down: '#ff3b5c', upExt: 'rgba(0,255,156,.38)', downExt: 'rgba(255,59,92,.38)', text: '#7d92b3', grid: 'rgba(22,36,63,.9)', cross: 'rgba(61,242,255,.45)' };
@@ -40,7 +41,13 @@ function baseChart(el, extra = {}) {
 /** Stock chart: candlesticks (default) or a close-price line. */
 export function createCandleChart(el, { onHover, style = 'candles', rsiEl = null, macdEl = null } = {}) {
   const LWC = window.LightweightCharts;
-  const chart = baseChart(el);
+  // Fixed view (no swipe/pinch), so candles never stretch or squash. Touch-and-drag reads prices.
+  const chart = baseChart(el, {
+    handleScroll: false, handleScale: false,
+    timeScale: { borderVisible: false, rightOffset: 1, fixLeftEdge: true, fixRightEdge: true, lockVisibleTimeRangeOnResize: false },
+    crosshair: { mode: LWC.CrosshairMode.Normal, vertLine: { color: 'rgba(232,241,255,.7)', style: LWC.LineStyle.Dashed, width: 1, labelVisible: false }, horzLine: { visible: false, labelVisible: false } },
+  });
+  el.style.touchAction = 'none';
   const series = chart.addCandlestickSeries({
     upColor: C.up, downColor: C.down, borderUpColor: C.up, borderDownColor: C.down, wickUpColor: C.up, wickDownColor: C.down,
     priceLineColor: 'rgba(232,241,255,.5)', priceLineStyle: LWC.LineStyle.Dotted,
@@ -69,7 +76,7 @@ export function createCandleChart(el, { onHover, style = 'candles', rsiEl = null
   chart.timeScale().subscribeVisibleLogicalRangeChange(r => { if (!r) return; rsiChart?.timeScale().setVisibleLogicalRange(r); macdChart?.timeScale().setVisibleLogicalRange(r); });
   let ind = { volume: false, ma: false, rsi: false, macd: false, maPeriods: I.DEFAULTS.maPeriods, rsiPeriod: I.DEFAULTS.rsiPeriod, macdParams: I.DEFAULTS.macd };
 
-  let bars = [], interval = '1d', intraday = false, mode = style, baseline = null;
+  let bars = [], interval = '1d', intraday = false, mode = style, baseline = null, extOn = true;
   // Line color follows the meaning of green/red: up or down vs the close before the range
   // (for 1D that's yesterday's close, matching the day change shown above the chart).
   const recolor = () => { if (bars.length) line.applyOptions({ color: bars.at(-1)[4] >= (baseline ?? bars[0][1]) ? C.up : C.down }); };
@@ -83,8 +90,43 @@ export function createCandleChart(el, { onHover, style = 'candles', rsiEl = null
     return { time: shiftTs(t), open: o, high: h, low: l, close: c, color: col, borderColor: col, wickColor: col };
   };
 
+  // ---- touch-and-drag price reading (Yahoo-style): dashed vertical line + price/time label while touching ----
+  const pill = document.createElement('div'); pill.className = 'scrub'; pill.hidden = true; el.appendChild(pill);
+  let scrubbing = false;
+  const timeLabel = t => {
+    const d = new Date(t * 1000), tz = { timeZone: 'America/New_York' };
+    if (intraday) {
+      const multiDay = bars.length && etYmd(new Date(bars[0][0] * 1000)) !== etYmd(new Date(bars.at(-1)[0] * 1000));
+      return d.toLocaleString('en-US', { ...tz, ...(multiDay ? { weekday: 'short' } : {}), hour: 'numeric', minute: '2-digit' });
+    }
+    if (interval === '1d' || interval === '1wk') return d.toLocaleDateString('en-US', { ...tz, month: 'short', day: 'numeric', year: 'numeric' });
+    return d.toLocaleDateString('en-US', { ...tz, month: 'short', year: 'numeric' });
+  };
+  const scrubAt = clientX => {
+    if (!bars.length) return;
+    const r = el.getBoundingClientRect();
+    const x = Math.max(0, Math.min(clientX - r.left, chart.timeScale().width()));
+    let i = Math.round(chart.timeScale().coordinateToLogical(x) ?? 0);
+    i = Math.max(0, Math.min(bars.length - 1, i));
+    const b = bars[i];
+    chart.setCrosshairPosition(b[4], shiftTs(b[0]), mode === 'line' ? line : series);
+    const px = chart.timeScale().timeToCoordinate(shiftTs(b[0])) ?? x;
+    pill.hidden = false;
+    pill.textContent = `${b[4] >= 1 ? b[4].toFixed(2) : b[4].toFixed(4)} · ${timeLabel(b[0])}`;
+    const w = pill.offsetWidth, max = chart.timeScale().width() - w;
+    pill.style.left = Math.max(0, Math.min(max, px - w / 2)) + 'px';
+    onHover?.(mode === 'line' ? { close: b[4] } : { open: b[1], high: b[2], low: b[3], close: b[4] });
+  };
+  const down = e => { if (e.button > 0) return; scrubbing = true; scrubAt(e.clientX); };
+  const move = e => { if (scrubbing) scrubAt(e.clientX); };
+  const up = () => { if (!scrubbing) return; scrubbing = false; pill.hidden = true; chart.clearCrosshairPosition(); onHover?.(null); };
+  el.addEventListener('pointerdown', down);
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+  window.addEventListener('pointercancel', up);
+
   chart.subscribeCrosshairMove(p => {
-    if (!onHover) return;
+    if (!onHover || scrubbing) return;
     if (!p || p.time == null) return onHover(null);
     if (mode === 'line') { const d = p.seriesData.get(line); return onHover(d ? { close: d.value } : null); }
     const d = p.seriesData.get(series);
@@ -92,8 +134,8 @@ export function createCandleChart(el, { onHover, style = 'candles', rsiEl = null
   });
 
   return {
-    setData(newBars, iv, base = null) {
-      interval = iv; intraday = iv in INTERVAL_SEC; baseline = base > 0 ? base : null;
+    setData(newBars, iv, base = null, ext = true) {
+      interval = iv; intraday = iv in INTERVAL_SEC; baseline = base > 0 ? base : null; extOn = ext;
       bars = intraday ? clampOutliers(newBars) : newBars.slice();
       // stocks under $1 need 4 decimals on the price axis
       const fmt = bars.length && bars.at(-1)[4] < 1 ? { type: 'price', precision: 4, minMove: 0.0001 } : { type: 'price', precision: 2, minMove: 0.01 };
@@ -112,20 +154,21 @@ export function createCandleChart(el, { onHover, style = 'candles', rsiEl = null
     live(q) {
       if (!bars.length || !q || q.error) return;
       const last = bars[bars.length - 1];
-      let bar;
+      let bar, grew = false;
       if (intraday) {
         const step = INTERVAL_SEC[interval];
         if (!q.lastTime || q.lastTime < last[0]) return;
+        if (!extOn && !isRegularHours(q.lastTime)) return; // EXT off: ignore pre/after-hours prints
         // Measure from the last bar: Yahoo's hourly bars start at :30, not on the hour.
         const bucket = last[0] + Math.floor((q.lastTime - last[0]) / step) * step;
         const p = q.last;
         if (bucket <= last[0]) bar = [last[0], last[1], Math.max(last[2], p), Math.min(last[3], p), p, last[5]];
-        else { bar = [bucket, p, p, p, p, 0]; bars.push(bar); }
+        else { bar = [bucket, p, p, p, p, 0]; bars.push(bar); grew = true; }
       } else if (interval === '1d') {
         if (!q.regularTime || !isRegularHours(q.regularTime)) return;
         const p = q.price;
         if (etYmd(new Date(q.regularTime * 1000)) === etYmd(new Date(last[0] * 1000))) bar = [last[0], last[1], Math.max(last[2], p), Math.min(last[3], p), p, last[5]];
-        else { bar = [q.regularTime, p, p, p, p, 0]; bars.push(bar); }
+        else { bar = [q.regularTime, p, p, p, p, 0]; bars.push(bar); grew = true; }
       } else {
         const p = q.price; bar = [last[0], last[1], Math.max(last[2], p), Math.min(last[3], p), p, last[5]];
       }
@@ -134,10 +177,11 @@ export function createCandleChart(el, { onHover, style = 'candles', rsiEl = null
       line.update({ time: shiftTs(bar[0]), value: bar[4] });
       recolor();
       if (ind.ma || ind.rsi || ind.macd || ind.volume) drawIndicators();
+      if (grew) chart.timeScale().fitContent(); // keep the whole range on screen
     },
     lastBar: () => bars[bars.length - 1] || null,
     count: () => bars.length,
-    destroy() { rsiChart?.remove(); macdChart?.remove(); chart.remove(); },
+    destroy() { el.removeEventListener('pointerdown', down); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); rsiChart?.remove(); macdChart?.remove(); chart.remove(); },
   };
 
   function drawIndicators() {

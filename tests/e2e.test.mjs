@@ -159,22 +159,28 @@ test('market closed (Thanksgiving): no fast polling, holiday label', async () =>
   await page.context().close();
 });
 
-test('timeframes and candle sizes request the right data', async () => {
+test('timeframes and candle sizes request the right data (bigger candles, EXT off by default)', async () => {
   const calls = [];
   const page = await newPage('iPhone 14', { time: '2026-11-24T15:00:00Z' });
   await relayMock(page, { calls });
   await page.goto(base);
   await page.waitForSelector('#chart canvas');
-  assert.ok(calls.some(c => c.includes('/chart') && c.includes('range=1d') && c.includes('interval=5m') && c.includes('prepost=1')));
+  assert.ok(calls.some(c => c.includes('/chart') && c.includes('range=1d') && c.includes('interval=5m') && !c.includes('prepost=1')), '1D = 5-minute candles, regular hours');
+  // EXT adds pre-market / after-hours
+  assert.equal(await page.isVisible('#extBtn'), true);
+  await page.click('#extBtn');
+  await page.waitForFunction(() => document.querySelector('#extBtn').classList.contains('on'));
+  assert.ok(calls.some(c => c.includes('range=1d') && c.includes('interval=5m') && c.includes('prepost=1')));
   await page.click('[data-tf="1Y"]');
-  await page.waitForFunction(() => document.querySelector('#ivBtn').textContent.startsWith('1d'));
-  assert.ok(calls.some(c => c.includes('range=1y') && c.includes('interval=1d')));
+  await page.waitForFunction(() => document.querySelector('#ivBtn').textContent.startsWith('1wk'));
+  assert.equal(await page.isHidden('#extBtn'), true, 'EXT only for intraday timeframes');
+  assert.ok(calls.some(c => c.includes('range=1y') && c.includes('interval=1wk')));
   await page.click('#ivBtn');
   assert.deepEqual(await page.locator('.sheet [data-iv]').allTextContents(), ['1 day', '1 week']);
-  await page.click('[data-iv="1wk"]');
-  await page.waitForFunction(() => document.querySelector('#ivBtn').textContent.startsWith('1wk'));
-  assert.ok(calls.some(c => c.includes('range=1y') && c.includes('interval=1wk')));
-  for (const [tf, iv, range] of [['MAX', '1mo', 'max'], ['1W', '30m', '5d'], ['1M', '1h', '1mo']]) {
+  await page.click('[data-iv="1d"]');
+  await page.waitForFunction(() => document.querySelector('#ivBtn').textContent.startsWith('1d'));
+  assert.ok(calls.some(c => c.includes('range=1y') && c.includes('interval=1d')));
+  for (const [tf, iv, range] of [['MAX', '3mo', 'max'], ['1W', '30m', '5d'], ['1M', '1d', '1mo']]) {
     await page.click(`[data-tf="${tf}"]`);
     await page.waitForFunction(v => document.querySelector('#ivBtn').textContent.startsWith(v), iv);
     assert.ok(calls.some(c => c.includes(`range=${range}`) && c.includes(`interval=${iv}`)), tf);
@@ -183,7 +189,6 @@ test('timeframes and candle sizes request the right data', async () => {
   assert.equal(await page.getAttribute('[data-tf="1M"]', 'class'), 'on', 'timeframe remembered');
   await page.context().close();
 });
-
 test('search: results, pick ticker, recent list', async () => {
   const page = await newPage('iPhone 14', { time: '2026-11-24T15:00:00Z' });
   await relayMock(page);
@@ -741,5 +746,67 @@ test('pull down to refresh prices', async () => {
     el.dispatchEvent(new TouchEvent('touchend', { touches: [], bubbles: true }));
   });
   await page.waitForFunction(() => document.querySelector('#pxMain')?.textContent === '104.20');
+  await page.context().close();
+});
+
+// ---- Redesign: chart-first Home, fixed chart, touch-and-drag price line -----------
+test('chart takes about 60% of an iPhone 15 Home Screen app and nothing overlaps', async () => {
+  const ctx = await browser.newContext({ ...devices['iPhone 15'], viewport: { width: 393, height: 759 } }); // 852 minus safe areas
+  await ctx.addInitScript(s => localStorage.setItem('lpt.v1', s), ACCOUNT(RELAY, { settings: { relayUrl: RELAY, symbol: 'AAPL', range: '1D', intervals: {} } }));
+  const page = await ctx.newPage();
+  await page.clock.install({ time: new Date(OPEN) });
+  await relayMock(page);
+  await page.goto(base);
+  await page.waitForSelector('#chart canvas');
+  const m = await page.evaluate(() => {
+    const H = innerHeight, r = s => document.querySelector(s).getBoundingClientRect();
+    return { chart: r('#chart').height / H, scrolls: document.querySelector('main').scrollHeight > document.querySelector('main').clientHeight + 1, buyBottom: r('#buy').bottom, navTop: r('nav').top, tfBottom: r('#tf').bottom, buyTop: r('#buy').top };
+  });
+  assert.ok(m.chart >= 0.55 && m.chart <= 0.72, `chart is ${(m.chart * 100).toFixed(0)}% of the screen`);
+  assert.equal(m.scrolls, false);
+  assert.ok(m.tfBottom <= m.buyTop && m.buyBottom <= m.navTop);
+  await ctx.close();
+});
+
+test('touch and drag shows a dotted line with price and time; lifting hides it', async () => {
+  const page = await newPage('iPhone 15', { time: OPEN, symbol: 'AAPL' });
+  await relayMock(page);
+  await page.goto(base);
+  await page.waitForSelector('#chart canvas');
+  const box = await page.locator('#chart').boundingBox();
+  assert.equal(await page.isHidden('.scrub'), true);
+  await page.mouse.move(box.x + box.width * 0.3, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.waitForSelector('.scrub:not([hidden])');
+  const first = await page.textContent('.scrub');
+  assert.match(first, /^\d+\.\d{2} · \d{1,2}:\d{2} (AM|PM)$/);
+  assert.match(await page.textContent('#legend'), /O .* H .* L .* C/);
+  await page.mouse.move(box.x + box.width * 0.6, box.y + box.height / 2);
+  assert.notEqual(await page.textContent('.scrub'), first, 'drag moves it');
+  await page.mouse.up();
+  assert.equal(await page.isHidden('.scrub'), true, 'gone when you lift your finger');
+  assert.match(await page.textContent('#legend'), /Touch & drag/);
+  await page.context().close();
+});
+
+test('swiping and pinching never reshape the candles', async () => {
+  const page = await newPage('iPhone 15', { time: OPEN, symbol: 'AAPL' });
+  await relayMock(page);
+  await page.goto(base);
+  await page.waitForSelector('#chart canvas');
+  await page.mouse.move(10, 10);
+  const box = await page.locator('#chart').boundingBox();
+  const clip = { x: box.x, y: box.y + 24, width: box.width, height: box.height - 24 };
+  const before = await page.screenshot({ clip });
+  const cdp = await page.context().newCDPSession(page), cy = box.y + box.height / 2, t = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts });
+  await t('touchStart', [{ x: box.x + 150, y: cy, id: 0 }, { x: box.x + 190, y: cy, id: 1 }]);
+  for (let i = 1; i <= 8; i++) await t('touchMove', [{ x: box.x + 150 - i * 10, y: cy, id: 0 }, { x: box.x + 190 + i * 10, y: cy, id: 1 }]);
+  await t('touchEnd', []);
+  await t('touchStart', [{ x: box.x + 60, y: cy }]);
+  for (let i = 1; i <= 8; i++) await t('touchMove', [{ x: box.x + 60 + i * 25, y: cy }]);
+  await t('touchEnd', []);
+  await page.waitForTimeout(400);
+  const after = await page.screenshot({ clip });
+  assert.ok(before.equals(after), 'chart looks exactly the same after pinch + swipe');
   await page.context().close();
 });

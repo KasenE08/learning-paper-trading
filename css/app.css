@@ -236,3 +236,37 @@ nav button.on { color: var(--cyan); text-shadow: var(--glow-c); }
 .screen { animation: fade .14s ease-out; }
 nav button { letter-spacing: min(.14em, calc(.14em / var(--ts))); }
 button:focus-visible, input:focus-visible { outline: 1px solid var(--cyan); outline-offset: 2px; }
+
+/* ---- Redesign: chart-first Home (~60% of the screen is the chart) ---- */
+.status { padding: 6px 14px 2px; min-height: 24px; }
+.netbar { margin: 0 12px 2px; padding: 5px 8px; }
+.acctbar { display: flex; align-items: baseline; gap: 10px; padding: 2px 14px 4px; font-size: calc(12px * var(--ts)); white-space: nowrap; overflow: hidden; }
+.acctbar .lbl { font-size: calc(9px * var(--ts)); }
+.acctbar b { font-size: calc(17px * var(--ts)); font-weight: 600; }
+.acctbar #dayPl { font-size: calc(12px * var(--ts)); overflow: hidden; text-overflow: ellipsis; }
+.home .frame.chartbox { margin: 2px 6px 4px; padding: 8px 0 4px; min-height: 0; }
+.home .chartbox > .br { width: 10px; height: 10px; }
+.qrow { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 0 10px 2px; }
+.qleft { min-width: 0; }
+.qrow .tk { font-size: calc(18px * var(--ts)); }
+.qrow .nm { max-width: 46vw; }
+.qrow .px { text-align: right; font-size: calc(16px * var(--ts)); white-space: nowrap; }
+.qrow .px .chg { font-size: calc(12px * var(--ts)); }
+.qrow .ext { margin-top: 1px; }
+.home .chart { margin: 0; min-height: 200px; }
+.home .chart .legend { position: absolute; left: 8px; top: 2px; z-index: 4; margin: 0; height: auto; pointer-events: none; background: #050913b3; padding: 1px 4px; }
+.scrub { position: absolute; top: 20px; z-index: 5; padding: 3px 7px; font-size: calc(11px * var(--ts)); white-space: nowrap; color: var(--bg); background: var(--white); box-shadow: 0 0 10px #e8f1ff55; pointer-events: none; }
+.home .ipane { margin: 2px 0 0; }
+.home .tf { margin-top: 4px; padding: 0 6px; }
+.home .btns { margin: 2px 10px 4px; gap: 10px; }
+.home .btn { padding: 9px; font-size: calc(13px * var(--ts)); }
+.home .tip { margin: 0 10px 2px; padding: 6px 30px 6px 10px; font-size: calc(11px * var(--ts)); line-height: 1.45; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.home .tip.open { white-space: normal; }
+.home .tip .x { top: 1px; }
+nav { padding: 6px 0 calc(4px + var(--sab)); margin: 0 12px; }
+nav button { padding: 4px; }
+.home > .acctbar, .home .qrow, .home .tf, .home .btns, .home #tipSlot, .home .ipane { flex: none; }
+/* chart area fills what's left; it can shrink down to its minimum, then the screen scrolls (never overlaps) */
+.home .frame.chartbox { flex: 1 1 auto; min-height: auto; }
+.home .chart { flex: 1 1 auto; min-height: 160px; }
+.home .chart { flex: 1 1 0; height: 0; overflow: hidden; }
