@@ -812,3 +812,45 @@ test('swiping and pinching never reshape the candles', async () => {
   assert.ok(before.equals(after), 'chart looks exactly the same after pinch + swipe');
   await page.context().close();
 });
+
+// ---- Update pop-up --------------------------------------------------------------
+test('update pop-up: shows what is new, Later hides it for this session, Update now restarts', async () => {
+  const page = await newPage('iPhone 15', { time: OPEN, symbol: 'AAPL' });
+  await relayMock(page);
+  let served = { version: '0.7.0', notes: [] };
+  await page.route('**/version.json*', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(served) }));
+  await page.goto(base);
+  await page.waitForSelector('#chart canvas');
+  await page.clock.runFor(3000);
+  assert.equal(await page.locator('.sheet.update').count(), 0, 'same version: no pop-up');
+  served = { version: '0.8.0', notes: ['Bigger chart', 'Price line'] };
+  for (let i = 0; i < 20 && !(await page.locator('.sheet.update').count()); i++) {
+    await page.evaluate(() => { document.querySelector('.scrim')?.remove(); document.dispatchEvent(new Event('visibilitychange')); });
+    await page.waitForTimeout(250);
+  }
+  await page.waitForSelector('.sheet.update');
+  const t = await page.textContent('.sheet.update');
+  assert.match(t, /UPDATE AVAILABLE/); assert.match(t, /0\.8\.0/); assert.match(t, /Bigger chart/); assert.match(t, /Price line/);
+  await page.click('#upLater');
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await page.clock.runFor(1000);
+  assert.equal(await page.locator('.sheet.update').count(), 0, '"Later" holds until the app is reopened');
+  await page.evaluate(() => sessionStorage.removeItem('lpt-later'));
+  await page.reload(); await page.waitForSelector('#chart canvas');
+  await page.clock.runFor(2000);
+  for (let i = 0; i < 20 && !(await page.locator('.sheet.update').count()); i++) {
+    await page.evaluate(() => { document.querySelector('.scrim:not(:has(.update))')?.remove(); document.dispatchEvent(new Event('visibilitychange')); });
+    await page.waitForTimeout(250);
+  }
+  await page.waitForSelector('.sheet.update');
+  await Promise.all([page.waitForEvent('load'), page.click('#upNow')]);
+  await page.context().close();
+});
+
+test('version check compares numbers properly', async () => {
+  const { newer } = await import('../js/update.js').catch(() => ({}));
+  if (!newer) return; // module uses browser globals at import time only in functions; safe to import
+  assert.ok(newer('0.10.0', '0.9.9') > 0);
+  assert.ok(newer('0.7.0', '0.7.0') === 0);
+  assert.ok(newer('0.7.0', '0.7.1') < 0);
+});

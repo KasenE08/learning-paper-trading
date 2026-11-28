@@ -11,6 +11,7 @@ import { renderPortfolio, refreshPortfolio } from './portfolio.js';
 import { exportBackup, importFlow, resetFlow } from './backup.js';
 import * as learn from './learn.js';
 import { applyTextScale, pullToRefresh } from './ux.js';
+import { startUpdates } from './update.js';
 import { afterFills } from './recap.js';
 import { DEFAULTS as IND_DEFAULTS } from './indicators.js';
 import { $, BR, sheet, closeSheet, toast } from './ui.js';
@@ -553,15 +554,7 @@ function indSettingsSheet(k) {
 }
 
 // ---------------------------------------------------------------- service worker
-// Updates apply on the first open: a new service worker takes over and the page reloads once.
-if ('serviceWorker' in navigator && location.protocol === 'https:') {
-  const hadController = !!navigator.serviceWorker.controller;
-  navigator.serviceWorker.register('sw.js').then(r => r.update()).catch(() => {});
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (!hadController || sessionStorage.getItem('lpt-reloaded')) return;
-    sessionStorage.setItem('lpt-reloaded', '1');
-    location.reload();
-  });
-}
+// Updates: "Update available" pop-up on open (see update.js).
+startUpdates();
 
 boot();
