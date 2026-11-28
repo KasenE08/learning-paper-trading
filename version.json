@@ -1,0 +1,10 @@
+{
+  "version": "0.7.0",
+  "notes": [
+    "Bigger chart: it now fills about two-thirds of the screen.",
+    "Bigger candles: 1D shows 5-minute candles for regular hours (tap EXT for pre/after-hours).",
+    "Touch and drag the chart to see the price and time at any point.",
+    "Candles no longer stretch or squash when you touch the chart.",
+    "Update pop-up: you'll see this message when a new version is out."
+  ]
+}

@@ -11,6 +11,7 @@ import { renderPortfolio, refreshPortfolio } from './portfolio.js';
 import { exportBackup, importFlow, resetFlow } from './backup.js';
 import * as learn from './learn.js';
 import { applyTextScale, pullToRefresh } from './ux.js';
+import { startUpdates } from './update.js';
 import { afterFills } from './recap.js';
 import { DEFAULTS as IND_DEFAULTS } from './indicators.js';
 import { $, BR, sheet, closeSheet, toast } from './ui.js';
@@ -136,30 +137,26 @@ function go(tab, sub = null) {
 const symbol = () => store.get().settings.symbol || DEFAULT_SYMBOL;
 const timeframe = () => store.get().settings.range || '1D';
 const chartStyle = () => store.get().settings.chartStyle || 'candles';
+const extOn = () => !!store.get().settings.ext; // pre/after-hours candles on intraday charts (off by default)
 const interval = () => { const tf = TIMEFRAMES[timeframe()], saved = store.get().settings.intervals[timeframe()]; return tf.intervals.includes(saved) ? saved : tf.def; };
 
 // ---------------------------------------------------------------- home
 function renderHome(main) {
   main.innerHTML = `
-  <section class="screen">
-    <div class="frame acct">${BR}
-      <div class="lbl">Account value</div>
-      <div class="big w" id="acctVal">${fmt.money(trader.summary().total)}</div>
-      <div class="row sub"><span class="flat" id="dayPl">■ ${fmt.signedMoney(0)} (${fmt.pct(0)})</span><span class="lbl">Today</span></div>
-    </div>
+  <section class="screen home">
+    <div class="acctbar"><span class="lbl">Account</span><b class="w" id="acctVal">${fmt.money(trader.summary().total)}</b><span class="flat" id="dayPl">■ ${fmt.signedMoney(0)} (${fmt.pct(0)})</span></div>
     <div class="frame chartbox">${BR}
-      <div class="row">
-        <div><button class="tk w" id="tkBtn" aria-label="Change stock. Current: ${fmt.esc(symbol())}">${fmt.esc(symbol())}<span class="caret">▾</span></button><div class="nm" id="tkName">&nbsp;</div></div>
-        <div class="px"><div id="pxMain" class="w">—</div><div class="chg" id="pxChg">&nbsp;</div></div>
+      <div class="qrow">
+        <div class="qleft"><button class="tk w" id="tkBtn" aria-label="Change stock. Current: ${fmt.esc(symbol())}">${fmt.esc(symbol())}<span class="caret">▾</span></button><div class="nm" id="tkName">&nbsp;</div></div>
+        <div class="px"><div><span id="pxMain" class="w">—</span> <span class="chg" id="pxChg"></span></div><div class="ext" id="pxExt"></div></div>
       </div>
-      <div class="ext" id="pxExt"></div>
-      <div class="legend" id="legend"></div>
-      <div class="chart" id="chart" role="img" aria-label="Price chart"></div>
+      <div class="chart" id="chart" role="img" aria-label="Price chart"><div class="legend" id="legend"></div></div>
       <div class="ipane" id="paneRsi" hidden><span class="plbl">RSI</span></div>
       <div class="ipane" id="paneMacd" hidden><span class="plbl">MACD</span></div>
       <div class="tf" id="tf">
         ${Object.keys(TIMEFRAMES).map(k => `<button data-tf="${k}" class="${k === timeframe() ? 'on' : ''}">${k}</button>`).join('')}
-        <button class="iv st" id="indBtn" aria-label="Indicators">IND</button>
+        <button class="iv st ${extOn() ? 'on' : ''}" id="extBtn" aria-label="Show pre-market and after-hours" ${TIMEFRAMES[timeframe()].prepost ? '' : 'hidden'}>EXT</button>
+        <button class="iv" id="indBtn" aria-label="Indicators">IND</button>
         <button class="iv" id="styleBtn" aria-label="Chart style">${chartStyle() === 'line' ? 'LINE' : 'CNDL'}</button>
         <button class="iv" id="ivBtn" aria-label="Candle size">${interval()} ▾</button>
       </div>
@@ -174,9 +171,16 @@ function renderHome(main) {
     store.update(s => { s.settings.range = b.dataset.tf; });
     $('#tf').querySelectorAll('[data-tf]').forEach(x => x.classList.toggle('on', x === b));
     $('#ivBtn').textContent = interval() + ' ▾';
+    $('#extBtn').hidden = !TIMEFRAMES[timeframe()].prepost;
     loadChart();
   });
   $('#indBtn').addEventListener('click', openIndicators);
+  $('#extBtn').addEventListener('click', () => {
+    store.update(s => { s.settings.ext = !extOn(); });
+    $('#extBtn').classList.toggle('on', extOn());
+    if (extOn()) learn.emit('ext');
+    loadChart(true);
+  });
   $('#styleBtn').addEventListener('click', () => {
     const next = chartStyle() === 'line' ? 'candles' : 'line';
     if (next === 'line') learn.emit('style:line');
@@ -224,7 +228,7 @@ function showLegend(d) {
   const el = $('#legend'); if (!el) return;
   if (d && d.open == null) { el.innerHTML = `Close <b class="w">${fmt.price(d.close)}</b>`; return; }
   el.innerHTML = d ? `O <b>${fmt.price(d.open)}</b> H <b>${fmt.price(d.high)}</b> L <b>${fmt.price(d.low)}</b> C <b class="${d.close >= d.open ? 'up' : 'down'}">${fmt.price(d.close)}</b>`
-    : `<span>Touch the chart to read ${chartStyle() === 'line' ? 'any point' : 'any candle'}</span>`;
+    : `<span>Touch &amp; drag to read prices</span>`;
 }
 
 function chartMsg(html) {
@@ -246,7 +250,7 @@ function drawChart(data, iv, sym) {
   ui.meta = data.meta;
   $('#tkName').textContent = data.meta.name || '';
   if (!data.bars.length) return chartMsg('No price data for this timeframe.');
-  ui.chart.setData(data.bars, iv, data.meta.chartPreviousClose);
+  ui.chart.setData(data.bars, iv, data.meta.chartPreviousClose, TIMEFRAMES[timeframe()].prepost && extOn());
   $('#chart').setAttribute('aria-label', `${sym} price chart, ${timeframe()}, ${data.bars.length} candles. Last close ${fmt.price(data.bars.at(-1)[4])}.`);
   chartMsg(null);
   const q = trader.getQuote(sym);
@@ -255,12 +259,13 @@ function drawChart(data, iv, sym) {
 async function loadChart(force = false) {
   if (!ui.chart) return;
   const seq = ++chartSeq, sym = symbol(), tf = TIMEFRAMES[timeframe()], iv = interval();
-  const key = `${sym}|${tf.range}|${iv}`, hit = chartCache.get(key);
+  const pre = tf.prepost && extOn();
+  const key = `${sym}|${tf.range}|${iv}|${pre ? 'x' : 'r'}`, hit = chartCache.get(key);
   showLegend(null);
   if (hit) { drawChart(hit.data, iv, sym); if (!force && Date.now() - hit.at < 20000) { ui.lastChartLoad = hit.at; return; } }
   else chartMsg('<span class="spin"></span>');
   try {
-    const data = await api.chart(sym, tf.range, iv, tf.prepost);
+    const data = await api.chart(sym, tf.range, iv, pre);
     if (seq !== chartSeq || !ui.chart) return;
     cacheChart(key, data);
     if (seq !== chartSeq || !ui.chart) return;
@@ -468,8 +473,10 @@ function textSizeSheet() {
 function renderTip() {
   const slot = $('#tipSlot'); if (!slot) return;
   const h = learn.current();
-  slot.innerHTML = h ? `<div class="tip ${h.kind === 'mistake' ? 'warn' : ''}"><span class="c">${h.kind === 'mistake' ? '⚠ HEADS-UP' : '› TIP'}</span> ${fmt.esc(h.text)}<button class="x" aria-label="Dismiss tip">✕</button></div>` : '';
-  slot.querySelector('.x')?.addEventListener('click', () => learn.dismiss());
+  slot.innerHTML = h ? `<div class="tip ${h.kind === 'mistake' ? 'warn' : ''}" role="button" aria-expanded="false"><span class="c">${h.kind === 'mistake' ? '⚠ HEADS-UP' : '› TIP'}</span> ${fmt.esc(h.text)}<button class="x" aria-label="Dismiss tip">✕</button></div>` : '';
+  slot.querySelector('.x')?.addEventListener('click', e => { e.stopPropagation(); learn.dismiss(); });
+  // one line by default (keeps the chart big); tap to read the whole tip
+  slot.querySelector('.tip')?.addEventListener('click', e => { const t = e.currentTarget; t.classList.toggle('open'); t.setAttribute('aria-expanded', t.classList.contains('open')); });
 }
 
 // ---------------------------------------------------------------- indicators
@@ -547,15 +554,7 @@ function indSettingsSheet(k) {
 }
 
 // ---------------------------------------------------------------- service worker
-// Updates apply on the first open: a new service worker takes over and the page reloads once.
-if ('serviceWorker' in navigator && location.protocol === 'https:') {
-  const hadController = !!navigator.serviceWorker.controller;
-  navigator.serviceWorker.register('sw.js').then(r => r.update()).catch(() => {});
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (!hadController || sessionStorage.getItem('lpt-reloaded')) return;
-    sessionStorage.setItem('lpt-reloaded', '1');
-    location.reload();
-  });
-}
+// Updates: "Update available" pop-up on open (see update.js).
+startUpdates();
 
 boot();
