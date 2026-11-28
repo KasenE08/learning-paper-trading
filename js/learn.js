@@ -72,7 +72,7 @@ export const HINTS = [
   // ---- mistakes & risk: shown right away, never fully fade ----
   H('m-gfv', 'mistake', 'gfv', 'Good-faith violation recorded: those shares were bought with cash that hadn\'t settled yet. Three in 12 months restricts your account for 90 days. Waiting one business day avoids it.'),
   H('m-restricted', 'mistake', 'restricted', 'Your account is restricted to settled cash for 90 days because of 3 good-faith violations. Check Portfolio for the date it ends.'),
-  H('m-queued', 'mistake', 'warn:queued:market', 'Heads-up: a market order placed while the market is closed fills at the next opening price, whatever it is. A limit order would cap that price.'),
+  H('m-queued', 'mistake', 'warn:queued:market', 'A market order placed while the market is closed fills at the next opening price, whatever it is. A limit order would cap that price.'),
   H('m-concentration', 'mistake', 'concentration', 'Over 40% of your account is now in one stock. That\'s a concentrated bet: one bad day for that company moves your whole account.'),
   H('m-bigmove', 'mistake', 'bigmove', 'This stock moved more than 8% today. Big moves often come with big swings in both directions, so prices can change fast between Review and Place.'),
   H('m-quickloss', 'mistake', 'quickloss', 'You closed a loss within a day of buying. Quick reversals can be a plan working (a stop) or a reaction. The recap can help you tell which.'),

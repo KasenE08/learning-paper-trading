@@ -270,3 +270,12 @@ nav button { padding: 4px; }
 .home .frame.chartbox { flex: 1 1 auto; min-height: auto; }
 .home .chart { flex: 1 1 auto; min-height: 160px; }
 .home .chart { flex: 1 1 0; height: 0; overflow: hidden; }
+
+/* ---- 0.7.1 fixes ---- */
+/* Fill the whole screen in the Home Screen app (iOS reports a short 100dvh in standalone mode). */
+#app { position: fixed; top: 0; bottom: 0; left: 0; right: 0; height: auto; }
+/* Timeframe row always fits inside the chart frame, at any text size. */
+.home .tf { gap: 2px; padding: 0 4px; font-size: calc(11px * min(var(--ts), 1.12)); overflow: hidden; }
+.home .tf button { padding: 6px 5px; flex: 0 1 auto; min-width: 0; letter-spacing: 0; }
+.home .tf .iv { padding: 5px 6px; margin-left: 3px; flex: 0 0 auto; }
+.home .tf .iv.st { margin-left: auto; }

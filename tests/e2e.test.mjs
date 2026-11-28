@@ -854,3 +854,17 @@ test('version check compares numbers properly', async () => {
   assert.ok(newer('0.7.0', '0.7.0') === 0);
   assert.ok(newer('0.7.0', '0.7.1') < 0);
 });
+
+test('0.7.1: app is pinned to all screen edges; chart buttons fit at large text', async () => {
+  for (const ts of ['1', '1.3']) {
+    const state = JSON.parse(ACCOUNT(RELAY, { settings: { relayUrl: RELAY, symbol: 'AAPL', range: '1W', intervals: {}, textSize: ts } }));
+    const page = await newPage('iPhone 15', { time: OPEN, state });
+    await relayMock(page);
+    await page.goto(base);
+    await page.waitForSelector('#chart canvas');
+    const m = await page.evaluate(() => { const a = getComputedStyle(document.querySelector('#app')), r = document.querySelector('#app').getBoundingClientRect(), f = document.querySelector('.chartbox').getBoundingClientRect(), iv = document.querySelector('#ivBtn').getBoundingClientRect(); return { pos: a.position, top: r.top, bottom: r.bottom, vh: innerHeight, ivRight: iv.right, frameRight: f.right }; });
+    assert.equal(m.pos, 'fixed'); assert.equal(m.top, 0); assert.equal(m.bottom, m.vh);
+    assert.ok(m.ivRight <= m.frameRight, `text ${ts}: candle-size button inside the frame`);
+    await page.context().close();
+  }
+});

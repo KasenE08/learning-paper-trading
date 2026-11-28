@@ -1,7 +1,7 @@
 // Service worker: the app works offline; market data always goes to the network.
 // Updates are user-approved: a new version installs in the background and waits until you tap
 // "Update now" in the app (which sends SKIP_WAITING). Bump VERSION with every release.
-const VERSION = 'lpt-v0.7.0';
+const VERSION = 'lpt-v0.7.1';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/app.js', 'js/api.js', 'js/chart.js', 'js/config.js', 'js/format.js', 'js/market.js', 'js/store.js',
