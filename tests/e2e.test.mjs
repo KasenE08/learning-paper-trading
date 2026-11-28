@@ -795,6 +795,8 @@ test('swiping and pinching never reshape the candles', async () => {
   await page.goto(base);
   await page.waitForSelector('#chart canvas');
   await page.mouse.move(10, 10);
+  await page.clock.pauseAt(new Date(Date.parse(OPEN) + 30_000)); // no live price refresh between the two screenshots
+  await page.waitForTimeout(300);
   const box = await page.locator('#chart').boundingBox();
   const clip = { x: box.x, y: box.y + 24, width: box.width, height: box.height - 24 };
   const before = await page.screenshot({ clip });
