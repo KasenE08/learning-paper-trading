@@ -36,3 +36,9 @@ LIVE_RELAY=http://localhost:8787 npm test  # adds a live-data test
 - [x] Phase 4: portfolio
 - [x] Phase 5: learning layer
 - [x] Phase 6: polish + full mobile testing
+
+## Releasing
+The live site deploys from the `main` branch (GitHub Pages). For every release:
+1. Bump the version in **three** places: `js/config.js` (`APP_VERSION`), `sw.js` (`VERSION`), `version.json` (`version`).
+2. Write 2–5 short "What's new" lines in `version.json` → `notes`. The app shows them in the **Update available** pop-up.
+3. Run `npm test`, then push to `main`.
